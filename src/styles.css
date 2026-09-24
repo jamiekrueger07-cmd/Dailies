@@ -784,3 +784,7 @@ button.vid-label:hover { color: var(--ink); }
   .draft-week { grid-row: auto; grid-column: 1; padding: 0 0 10px 30px; }
 }
 .scr-move { display: grid; gap: 6px; margin-top: 10px; font-size: 13px; font-weight: 600; }
+
+/* ---------- v16: bug hunt 3 ---------- */
+.sheet { max-height: 100dvh; overflow-y: auto; }
+.ex-shot { max-width: 468px; justify-self: center; width: 100%; }
