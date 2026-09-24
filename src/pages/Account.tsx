@@ -5,6 +5,7 @@ import { AI_ALLOWANCE, aiAllowance, aiLeft, aiResetsOn, FREE_DEAL_LIMIT, hourLab
 import { useApp } from '../state'
 import { PENDING_TIER_KEY, PRO_FEATURES } from '../components/Upgrade'
 import { PENDING_KEY } from './Onboarding'
+import { FeedbackButton } from '../components/Feedback'
 
 /** Lives outside the page tree so it survives the app switching from onboarding to the main tabs. */
 export function CheckoutWatcher() {
@@ -263,6 +264,12 @@ export function AccountPage() {
             placeholder="e.g. Jamie K. (@handle)"
           />
         </label>
+      </section>
+
+      <section className="card edit-card">
+        <h2 className="section-title">Feedback</h2>
+        <p className="muted small">What's working, what isn't, or a tool you wish Dailies had. It goes straight to the creator building it.</p>
+        <FeedbackButton className="btn block" />
       </section>
 
       <button
