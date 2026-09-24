@@ -45,6 +45,12 @@ export interface Backend {
   resetPassword(email: string): Promise<void>
   /** Set a new password (after following a reset link, which logs you in). */
   updatePassword(password: string): Promise<void>
+  /** Change password from the Account page: checks the current one first. */
+  changePassword(current: string, next: string): Promise<void>
+  /** Starts an email change. Live: the change finishes once the confirmation link is clicked. */
+  changeEmail(email: string): Promise<{ needsConfirm: boolean }>
+  /** Deletes the account and everything in it (cancels any subscription, no refund). */
+  deleteAccount(): Promise<void>
   signOut(): Promise<void>
   getProfile(userId: string): Promise<Profile>
   load(userId: string): Promise<Data>
@@ -240,6 +246,33 @@ function cloud(sb: SupabaseClient): Backend {
     async updatePassword(password) {
       const { error } = await sb.auth.updateUser({ password })
       if (error) throw /different from the old/i.test(error.message) ? new Error('Pick a password you haven’t used before.') : error
+    },
+    async changePassword(current, next) {
+      const { data } = await sb.auth.getUser()
+      const email = data.user?.email
+      if (!email) throw new Error('Please log in again.')
+      const { error: bad } = await sb.auth.signInWithPassword({ email, password: current })
+      if (bad) throw new Error("Your current password isn't right.")
+      const { error } = await sb.auth.updateUser({ password: next })
+      if (error) throw /different from the old/i.test(error.message) ? new Error('Pick a password you haven’t used before.') : error
+    },
+    async changeEmail(email) {
+      const { error } = await sb.auth.updateUser({ email: email.trim() }, { emailRedirectTo: `${window.location.origin}/app/account` })
+      if (error) throw /already/i.test(error.message) ? new Error('That email is already used by another account.') : error
+      return { needsConfirm: true }
+    },
+    async deleteAccount() {
+      const { data, error } = await sb.functions.invoke('delete-account', { body: { confirm: 'DELETE' } })
+      if (error || !data?.ok) {
+        let msg = ''
+        try {
+          msg = (await (error as any)?.context?.json())?.error ?? ''
+        } catch {
+          /* no body */
+        }
+        throw new Error(msg || "Couldn't delete your account. Try again in a minute, or email support@dailies.digital.")
+      }
+      await sb.auth.signOut()
     },
     async signOut() {
       await sb.auth.signOut()
@@ -552,6 +585,42 @@ function preview(): Backend {
       const accounts = get<Record<string, PreviewAccount>>('accounts', {})
       const key = user.email.trim().toLowerCase()
       if (accounts[key]) set('accounts', { ...accounts, [key]: { ...accounts[key], pw: pwHash(password) } })
+    },
+    async changePassword(current, next) {
+      const user = get<User | null>('user', null)
+      const accounts = get<Record<string, PreviewAccount>>('accounts', {})
+      const key = user?.email?.trim().toLowerCase() ?? ''
+      if (!accounts[key] || (accounts[key].pw !== null && accounts[key].pw !== pwHash(current))) throw new Error("Your current password isn't right.")
+      set('accounts', { ...accounts, [key]: { ...accounts[key], pw: pwHash(next) } })
+    },
+    async changeEmail(email) {
+      const user = get<User | null>('user', null)
+      const accounts = get<Record<string, PreviewAccount>>('accounts', {})
+      const from = user?.email?.trim().toLowerCase() ?? ''
+      const to = email.trim().toLowerCase()
+      if (accounts[to]) throw new Error('That email is already used by another account.')
+      const { [from]: acct, ...rest } = accounts
+      set('accounts', { ...rest, [to]: acct })
+      set('user', { ...user, email: email.trim() })
+      emit()
+      return { needsConfirm: false }
+    },
+    async deleteAccount() {
+      const user = get<User | null>('user', null)
+      const uid = currentUid()
+      const accounts = get<Record<string, PreviewAccount>>('accounts', {})
+      const key = user?.email?.trim().toLowerCase() ?? ''
+      const { [key]: _gone, ...rest } = accounts
+      set('accounts', rest)
+      try {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith(`${K}u:${uid}:`))
+          .forEach((k) => localStorage.removeItem(k))
+      } catch {
+        /* nothing stored */
+      }
+      set('user', null)
+      emit()
     },
     async signOut() {
       set('user', null)
