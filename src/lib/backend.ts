@@ -2,7 +2,7 @@
 //  - cloud:   real accounts, data and billing (Supabase + Stripe). Used when VITE_SUPABASE_URL is set.
 //  - preview: everything in this browser, "Upgrade" just flips the plan. Used for the clickable preview.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { AI_ALLOWANCE, aiLeft, DEFAULT_SETTINGS, FREE_DEAL_LIMIT, TOPUP_SCRIPTS, type Check, type Plan, type Tier, type Deal, type Interval, type Profile, type Script, type ScriptDraft, type Settings, type SharedReport, type Video, type WriteBrief } from './model'
+import { AI_ALLOWANCE, aiAllowance, aiLeft, DEFAULT_SETTINGS, FREE_DEAL_LIMIT, TOPUP_SCRIPTS, type Check, type Plan, type Tier, type Deal, type Interval, type Profile, type Script, type ScriptDraft, type Settings, type SharedReport, type Video, type WriteBrief } from './model'
 import { sampleScripts, splitBrief } from './localScripts'
 
 export interface User {
@@ -242,7 +242,13 @@ function cloud(sb: SupabaseClient): Backend {
       // AI scripts used since the 1st of this month
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
       const runs = await sb.from('ai_runs').select('scripts').eq('user_id', userId).gte('created_at', monthStart)
-      const aiUsed = runs.error ? 0 : runs.data.reduce((n: number, r: any) => n + (r.scripts ?? 0), 0)
+      let aiUsed = runs.error ? 0 : runs.data.reduce((n: number, r: any) => n + (r.scripts ?? 0), 0)
+      // The server's own count wins (it knows about trials and time zones), so the meter always matches.
+      const left = await sb.rpc('my_ai_left')
+      if (!left.error && typeof left.data === 'number') {
+        const allowance = aiAllowance({ plan: (['pro', 'plus'].includes(data?.plan) ? data?.plan : 'free') as Plan, subscriptionStatus: data?.subscription_status ?? null })
+        aiUsed = Math.max(0, allowance - Math.max(0, left.data - (data?.ai_bonus ?? 0)))
+      }
       return {
         plan: (['pro', 'plus'].includes(data?.plan) ? data?.plan : 'free') as Plan,
         aiUsed,
