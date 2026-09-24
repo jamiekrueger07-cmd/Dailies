@@ -24,6 +24,8 @@ export interface Deal {
   paid: boolean
   notes: string
   sortOrder: number
+  /** Set by the server. On Free, the two oldest deals are the tracked ones. */
+  createdAt?: string
 }
 
 export interface Check {
