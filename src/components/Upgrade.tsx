@@ -66,11 +66,15 @@ const inDays = (n: number) =>
 /** Bottom sheet that sells Pro / Pro Plus and starts Stripe checkout. */
 export function UpgradeSheet() {
   const { upgradeOpen, upgradeTier, closeUpgrade, profile } = useApp()
-  const [interval, setIv] = useState<Interval>('year')
+  const [interval, setIv] = useState<Interval>(profile.interval ?? 'year')
   const [tier, setTier] = useState<Tier>(upgradeTier)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   useEffect(() => setTier(upgradeTier), [upgradeTier, upgradeOpen])
+  // Members switching plans start on the interval they already pay, so nobody lands on yearly by accident.
+  useEffect(() => {
+    if (upgradeOpen) setIv(profile.interval ?? 'year')
+  }, [upgradeOpen, profile.interval])
   if (!upgradeOpen) return null
   const onPro = profile.plan === 'pro'
   const choices: Tier[] = onPro ? ['plus'] : ['pro', 'plus']
@@ -128,7 +132,7 @@ export function UpgradeSheet() {
         </button>
         <p className="muted tiny center">
           {onPro
-            ? "You'll only pay the difference for the rest of this billing period."
+            ? "You'll be charged the difference for the rest of this billing period today."
             : trial
               ? `Free until ${inDays(TRIAL_DAYS)}, with ${TRIAL_AI_SCRIPTS} AI scripts to try. Then ${price} and your full AI allowance. Cancel before then and you won't be charged.`
               : 'Cancel anytime from your account.'}
