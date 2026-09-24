@@ -1,4 +1,4 @@
-import { StrictMode, type ReactNode } from 'react'
+import { lazy, StrictMode, Suspense, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, HashRouter, Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import './styles.css'
@@ -9,15 +9,16 @@ import { FeedbackButton } from './components/Feedback'
 import { IconAi, IconDeals, IconFilm, IconReport, IconToday, Wordmark } from './components/Brand'
 import { LandingPage } from './pages/Landing'
 import { AuthPage, ResetPasswordPage } from './pages/Auth'
-import { TodayPage } from './pages/Today'
-import { FilmPage } from './pages/Film'
-import { ReportPage } from './pages/Report'
-import { AiPage } from './pages/Ai'
-import { DealsPage } from './pages/Deals'
-import { OnboardingPage } from './pages/Onboarding'
+const TodayPage = lazy(() => import('./pages/Today').then((m) => ({ default: m.TodayPage })))
+const FilmPage = lazy(() => import('./pages/Film').then((m) => ({ default: m.FilmPage })))
+const ReportPage = lazy(() => import('./pages/Report').then((m) => ({ default: m.ReportPage })))
+const AiPage = lazy(() => import('./pages/Ai').then((m) => ({ default: m.AiPage })))
+const DealsPage = lazy(() => import('./pages/Deals').then((m) => ({ default: m.DealsPage })))
+const OnboardingPage = lazy(() => import('./pages/Onboarding').then((m) => ({ default: m.OnboardingPage })))
 import { AccountPage, CheckoutWatcher } from './pages/Account'
 import { LegalPage } from './pages/Legal'
-import { SharedReportPage } from './pages/SharedReport'
+import { useTitle } from './lib/title'
+const SharedReportPage = lazy(() => import('./pages/SharedReport').then((m) => ({ default: m.SharedReportPage })))
 
 function ToastView() {
   const { toast } = useApp()
@@ -78,7 +79,9 @@ function Shell({ children }: { children: ReactNode }) {
           <span>{isPro ? 'Pro' : 'Free'} · Account</span>
         </Link>
       </header>
-      <main>{children}</main>
+      <main>
+        <Suspense fallback={<div className="page-loading" aria-busy="true" />}>{children}</Suspense>
+      </main>
       <nav className="tabs">
         {NAV.map(({ to, end, label, Icon }) => (
           <NavLink key={to} to={to} end={end}>
@@ -140,6 +143,7 @@ createRoot(document.getElementById('root')!).render(
     <Router>
       <AppProvider>
         <CheckoutWatcher />
+        <Suspense fallback={<div className="splash">Loading…</div>}>
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<PublicOnly><AuthPage mode="in" /></PublicOnly>} />
@@ -151,12 +155,14 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/app/*" element={<AppRoutes />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
       </AppProvider>
     </Router>
   </StrictMode>,
 )
 
 function NotFound() {
+  useTitle('Page not found')
   return (
     <div className="auth">
       <div className="auth-card">
