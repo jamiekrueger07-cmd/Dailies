@@ -587,3 +587,71 @@ button.vid-label:hover { color: var(--ink); }
 .app-bar-email:empty { display: none; }
 .hero-signed { margin: 10px 0 0; }
 .hero-signed .l-link { font-size: inherit; text-decoration: underline; }
+
+/* ---------- v8: computer layout (left sidebar) ---------- */
+.side { display: none; }
+@media (min-width: 960px) {
+  .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+  .app-bar, .tabs { display: none; }
+  main { padding-bottom: 48px; }
+  .side {
+    display: flex; flex-direction: column; gap: 22px;
+    position: sticky; top: 0; height: 100vh; padding: 22px 14px 18px;
+    border-right: 1px solid var(--line); background: var(--surface);
+  }
+  .side-brand { padding: 4px 10px 6px; }
+  .side-nav { display: grid; gap: 2px; }
+  .side-nav a {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 6px;
+    color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600;
+  }
+  .side-nav a .ico { width: 19px; height: 19px; }
+  .side-nav a:hover { background: var(--surface-2); color: var(--ink); }
+  .side-nav a.active { background: var(--soft); color: var(--soft-ink); }
+  .side-account {
+    margin-top: auto; display: grid; gap: 3px; padding: 12px; border-radius: 8px;
+    border: 1px solid var(--line); color: var(--ink); text-decoration: none;
+  }
+  .side-account:hover, .side-account.active { border-color: var(--forest); }
+  .side-plan { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--sage-deep); }
+  .side-email { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-acc-link { font-size: 12px; color: var(--muted); }
+
+  /* wide work area; brand cards sit side by side */
+  .page { max-width: 1240px; margin: 0; padding: 36px 44px 16px; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); align-items: start; }
+  .page > * { grid-column: 1 / -1; }
+  .page > .deal-card { grid-column: auto; }
+  .page-head { margin-bottom: 4px; }
+  .page-head h1 { font-size: 38px; }
+  .toast { bottom: 28px; left: calc(50% + 118px); }
+
+  /* Today: bigger tap targets feel odd with a mouse, so tighten them */
+  .pill { min-height: 38px; }
+  .week-strip { max-width: 720px; }
+
+  /* Account: settings in two columns */
+  .page:has(.plan-name) { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 1080px; }
+  .page:has(.plan-name) > .edit-card { grid-column: auto; }
+
+  /* AI: writer on the left, usage + tips on the right */
+  .ai-page { grid-template-columns: minmax(0, 1fr) 340px; max-width: 1180px; }
+  .ai-page > .page-head { grid-column: 1 / -1; }
+  .ai-page > .card:not(.ai-meter):not(.ai-pitch):not(.ai-example) { grid-column: 1; grid-row: 2 / span 2; margin-top: 0; }
+  .ai-page > .ai-meter, .ai-page > .ai-pitch { grid-column: 2; grid-row: 2; margin-top: 0; position: sticky; top: 24px; }
+  .ai-page > .ai-example { grid-column: 2; grid-row: 3; margin-top: 0; }
+  .ai-page .card { margin-top: 0; }
+
+  /* upgrade sheet is a centered dialog on a computer */
+  .sheet { max-width: 520px; }
+}
+@media (min-width: 960px) {
+  .report-body { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); align-items: start; }
+  .report-body > * { grid-column: 1 / -1; margin: 0; }
+  .report-body > .deal-card { grid-column: auto; }
+  /* full-width buttons look stretched on a big screen */
+  .page > .btn.block, .report-body > .btn.block { justify-self: start; width: auto; min-width: 240px; padding-inline: 28px; }
+  .film-seg { max-width: 360px; }
+}
+@media (min-width: 1400px) {
+  .page { padding-inline: 56px; }
+}
