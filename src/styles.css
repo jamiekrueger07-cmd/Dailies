@@ -771,3 +771,16 @@ button.vid-label:hover { color: var(--ink); }
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media (min-width: 960px) { .side-feedback { margin-bottom: -14px; } }
+
+/* ---------- v15: brief notes, weeks per script, move scripts ---------- */
+.draft-start { display: grid; gap: 6px; margin: 4px 0 10px; font-size: 13px; font-weight: 600; }
+.draft-start select, .scr-move select { max-width: 280px; }
+.draft-wrap:has(.draft-week) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; align-items: start; }
+.draft-wrap:has(.draft-week) > .draft-preview { grid-column: 1 / -1; }
+.draft-week { padding-top: 8px; grid-row: 1; grid-column: 2; }
+.draft-week select { width: auto; min-width: 0; padding: 5px 26px 5px 9px; font-size: 12px; }
+@media (max-width: 520px) {
+  .draft-wrap:has(.draft-week) { grid-template-columns: 1fr; }
+  .draft-week { grid-row: auto; grid-column: 1; padding: 0 0 10px 30px; }
+}
+.scr-move { display: grid; gap: 6px; margin-top: 10px; font-size: 13px; font-weight: 600; }
