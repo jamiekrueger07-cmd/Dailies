@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { PLATFORMS, WEEKDAYS, videosPerWeek, type Deal, type PlatformId } from '../lib/model'
+import { PLATFORMS, WEEKDAYS, dealProblem, videosPerWeek, type Deal, type PlatformId } from '../lib/model'
 
 export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: Deal) => void; index?: number }) {
   const up = (p: Partial<Deal>) => onChange({ ...deal, ...p })
@@ -36,7 +36,7 @@ export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: 
               min={1}
               max={140}
               value={deal.videosPerWeek}
-              onChange={(e) => up({ videosPerWeek: Math.max(1, Number(e.target.value) || 1) })}
+              onChange={(e) => up({ videosPerWeek: Math.min(140, Math.max(1, Math.round(Number(e.target.value)) || 1)) })}
             />
           </label>
         ) : (
@@ -47,7 +47,7 @@ export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: 
               min={1}
               max={20}
               value={deal.videosPerDay}
-              onChange={(e) => up({ videosPerDay: Math.max(1, Number(e.target.value) || 1) })}
+              onChange={(e) => up({ videosPerDay: Math.min(20, Math.max(1, Math.round(Number(e.target.value)) || 1)) })}
             />
           </label>
         )}
@@ -58,7 +58,7 @@ export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: 
             min={0}
             step="0.01"
             value={deal.ratePerVideo ?? ''}
-            onChange={(e) => up({ ratePerVideo: e.target.value === '' ? null : Number(e.target.value) })}
+            onChange={(e) => up({ ratePerVideo: e.target.value === '' ? null : Math.min(100000, Math.max(0, Number(e.target.value) || 0)) })}
             placeholder="optional"
           />
         </label>
@@ -76,11 +76,11 @@ export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: 
       <div className="row2">
         <label>
           Start date
-          <input type="date" value={deal.startDate} onChange={(e) => up({ startDate: e.target.value })} />
+          <input type="date" required value={deal.startDate} onChange={(e) => e.target.value && up({ startDate: e.target.value })} />
         </label>
         <label>
           End date
-          <input type="date" value={deal.endDate ?? ''} onChange={(e) => up({ endDate: e.target.value || null })} />
+          <input type="date" min={deal.startDate} value={deal.endDate ?? ''} onChange={(e) => up({ endDate: e.target.value || null })} />
         </label>
       </div>
       <div className="row2">
@@ -106,6 +106,11 @@ export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: 
           Videos need approving before I can post them
         </label>
       </div>
+      {deal.endDate && deal.endDate < deal.startDate && (
+        <p className="error" role="alert">
+          {dealProblem(deal)}
+        </p>
+      )}
       <div className="deal-math muted small">
         <b>{perWeek} videos a week</b> ({perDay} a day) × {deal.platforms.length} platform{deal.platforms.length === 1 ? '' : 's'} ={' '}
         {perWeek * deal.platforms.length} posts a week
