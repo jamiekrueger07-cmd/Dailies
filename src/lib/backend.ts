@@ -26,6 +26,7 @@ export interface BriefVideo {
   title: string
   text: string
 }
+export type FeedbackKind = 'working' | 'not' | 'idea'
 export type BriefOutline = { videos: BriefVideo[]; shared: string[]; brief: string } | { fallback: true }
 /** note is set when fewer scripts came back than the brief had, because the user ran out of AI scripts. */
 export interface AiResult {
@@ -65,6 +66,8 @@ export interface Backend {
   startCheckout(interval: Interval, tier: Tier): Promise<void>
   buyTopup(): Promise<void>
   openBillingPortal(): Promise<void>
+  /** Feedback from the in-app form: saved, and emailed to support. */
+  sendFeedback(f: { kind: FeedbackKind; message: string; page: string }): Promise<void>
 }
 
 // ---------------- cloud ----------------
@@ -417,6 +420,19 @@ function cloud(sb: SupabaseClient): Backend {
     startCheckout: (interval, tier) => call('create-checkout', { interval, tier }),
     buyTopup: () => call('create-checkout', { topup: true }),
     openBillingPortal: () => call('customer-portal'),
+    async sendFeedback(f) {
+      const { data, error } = await sb.functions.invoke('send-feedback', { body: f })
+      if (error) {
+        let msg = ''
+        try {
+          msg = (await (error as any).context?.json())?.error ?? ''
+        } catch {
+          /* no body */
+        }
+        throw new Error(msg || "Couldn't send. Try again in a minute, or email support@dailies.digital.")
+      }
+      if (!data?.ok) throw new Error("Couldn't send. Try again in a minute, or email support@dailies.digital.")
+    },
   }
 }
 
@@ -674,6 +690,10 @@ function preview(): Backend {
     async openBillingPortal() {
       set('plan', 'free')
       emit()
+    },
+    async sendFeedback(f) {
+      await new Promise((r) => setTimeout(r, 400))
+      set('feedback', [...get<unknown[]>('feedback', []), { ...f, at: new Date().toISOString() }])
     },
   }
 }
