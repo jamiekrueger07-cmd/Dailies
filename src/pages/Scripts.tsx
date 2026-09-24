@@ -483,7 +483,7 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
           <button
             className="btn primary block"
             onClick={run}
-            disabled={busy || (mode === 'paste' && !text.trim()) || (mode === 'upload' && !upload) || (mode === 'ai' && !brief.product.trim())}
+            disabled={isPro && (busy || (mode === 'paste' && !text.trim()) || (mode === 'upload' && !upload) || (mode === 'ai' && !brief.product.trim()))}
           >
             {!isPro ? 'Unlock with Pro' : busy ? (mode === 'ai' ? 'Writing scripts…' : 'Finding the videos in the brief…') : mode === 'ai' ? `Write ${brief.count} script${brief.count === 1 ? '' : 's'}` : 'Split into scripts'}
           </button>
