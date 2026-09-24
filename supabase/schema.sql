@@ -239,10 +239,16 @@ create policy "read own ai runs" on public.ai_runs for select using (auth.uid() 
 create or replace function public.ai_allowance(p text) returns int
 language sql immutable as $$ select case p when 'plus' then 400 when 'pro' then 40 else 0 end $$;
 
+-- During the free trial people get a small taste (5 AI scripts). The full allowance starts once they pay.
+create or replace function public.ai_allowance_now(p text, status text) returns int
+language sql immutable as $$
+  select case when status = 'trialing' then least(5, public.ai_allowance(p)) else public.ai_allowance(p) end
+$$;
+
 -- AI scripts someone can still use right now (this month's allowance left + top-ups)
 create or replace function public.ai_scripts_left(uid uuid) returns int
 language sql stable security definer set search_path = public as $$
-  select greatest(0, public.ai_allowance(p.plan) - coalesce((
+  select greatest(0, public.ai_allowance_now(p.plan, p.subscription_status) - coalesce((
            select sum(r.scripts) from public.ai_runs r
            where r.user_id = uid and r.created_at >= date_trunc('month', now())), 0))::int
          + greatest(0, p.ai_bonus)
@@ -254,13 +260,14 @@ create or replace function public.record_ai_run(uid uuid, run_mode text, n int, 
 returns void language plpgsql security definer set search_path = public as $$
 declare
   user_plan text;
+  user_status text;
   used int;
   from_month int;
 begin
-  select plan into user_plan from public.profiles where id = uid for update;
+  select plan, subscription_status into user_plan, user_status from public.profiles where id = uid for update;
   select coalesce(sum(scripts), 0) into used from public.ai_runs
     where user_id = uid and created_at >= date_trunc('month', now());
-  from_month := least(n, greatest(0, public.ai_allowance(user_plan) - used));
+  from_month := least(n, greatest(0, public.ai_allowance_now(user_plan, user_status) - used));
   if n > from_month then
     update public.profiles set ai_bonus = greatest(0, ai_bonus - (n - from_month)) where id = uid;
   end if;
