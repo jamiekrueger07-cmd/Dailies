@@ -95,6 +95,7 @@ const dealFromRow = (r: any): Deal => ({
   paid: r.paid,
   notes: r.notes ?? '',
   sortOrder: r.sort_order,
+  createdAt: r.created_at ?? undefined,
 })
 const dealToRow = (d: Deal, user_id: string) => ({
   id: d.id,
