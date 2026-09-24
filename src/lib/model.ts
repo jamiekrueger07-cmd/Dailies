@@ -100,10 +100,26 @@ export const aiResetsOn = () => {
 }
 
 /** Rough page count of a PDF (counts page objects), used to enforce the upload page limit. */
+// Real page count: read the page tree's /Count from the root /Pages object (the one with no /Parent).
+// Counting every "/Type /Page" overcounts PDFs that were saved or edited several times (Canva, Acrobat),
+// because each save repeats the page objects. If a PDF was saved several times, the last copy wins.
+// Falls back to counting distinct page objects. Returns 0 when it can't tell (compressed PDFs).
+function pdfPageCountText(text: string) {
+  let rootCount = 0
+  const pageIds = new Set<string>()
+  for (const o of text.split(/\bendobj\b/)) {
+    const id = o.match(/(\d+)\s+\d+\s+obj\b(?![\s\S]*\bobj\b)/)?.[1]
+    if (/\/Type\s*\/Pages\b/.test(o)) {
+      const c = o.match(/\/Count\s+(\d+)/)
+      if (c && !/\/Parent\b/.test(o)) rootCount = Number(c[1])
+    } else if (/\/Type\s*\/Page(?![A-Za-z])/.test(o) && id) pageIds.add(id)
+  }
+  return rootCount || pageIds.size
+}
 export function pdfPageCount(bytes: Uint8Array) {
   let text = ''
   for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  return (text.match(/\/Type\s*\/Page[^s]/g) ?? []).length
+  return pdfPageCountText(text)
 }
 export const TRIAL_DAYS = 7
 export const YEARLY_SAVINGS = Math.round((1 - PRO_PRICE_YEARLY / (PRO_PRICE * 12)) * 100)
