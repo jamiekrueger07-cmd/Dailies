@@ -3,6 +3,7 @@ import { backend } from '../lib/backend'
 import {
   AI_ALLOWANCE,
   PLUS_YEARLY_SAVINGS,
+  TRIAL_AI_SCRIPTS,
   TRIAL_DAYS,
   YEARLY_SAVINGS,
   tierPrice,
@@ -129,7 +130,7 @@ export function UpgradeSheet() {
           {onPro
             ? "You'll only pay the difference for the rest of this billing period."
             : trial
-              ? `Free until ${inDays(TRIAL_DAYS)}, then ${price}. Cancel before then and you won't be charged.`
+              ? `Free until ${inDays(TRIAL_DAYS)}, with ${TRIAL_AI_SCRIPTS} AI scripts to try. Then ${price} and your full AI allowance. Cancel before then and you won't be charged.`
               : 'Cancel anytime from your account.'}
           {backend.mode === 'preview' ? ' Preview: no real charge.' : ' Payments are handled by Stripe.'}
         </p>
