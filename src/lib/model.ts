@@ -86,8 +86,9 @@ export const tierPriceText = (t: Tier, i: Interval) => `$${tierPrice(t, i)}/${i 
 
 /** During the free trial you get a small taste of the AI writer. The full allowance starts once you pay. */
 export const TRIAL_AI_SCRIPTS = 5
+// A card that failed (past_due) keeps the plan while Stripe retries, but no new monthly AI scripts until it's paid.
 export const aiAllowance = (p: { plan: Plan; subscriptionStatus?: string | null }) =>
-  p.subscriptionStatus === 'trialing' ? Math.min(TRIAL_AI_SCRIPTS, AI_ALLOWANCE[p.plan]) : AI_ALLOWANCE[p.plan]
+  p.subscriptionStatus === 'past_due' ? 0 : p.subscriptionStatus === 'trialing' ? Math.min(TRIAL_AI_SCRIPTS, AI_ALLOWANCE[p.plan]) : AI_ALLOWANCE[p.plan]
 
 /** AI scripts left right now: what's left of this month's allowance, plus any top-ups. */
 export const aiLeft = (p: { plan: Plan; subscriptionStatus?: string | null; aiUsed: number; aiBonus: number }) =>
@@ -212,8 +213,18 @@ export const checkKey = (c: { dealId: string; date: string; videoNo: number; pla
   `${c.dealId}|${c.date}|${c.videoNo}|${c.platform}`
 
 // ---- quota ----
-export const isLive = (d: Deal, date: string) =>
-  !(d.status !== 'active' || date < d.startDate || (d.endDate && date > d.endDate))
+// Pausing only affects today and later, so a paused deal keeps its past reports.
+export const isLive = (d: Deal, date: string, now = today()) =>
+  !(date < d.startDate || (d.endDate && date > d.endDate) || (d.status !== 'active' && date >= now))
+
+/** Why a deal can't be saved yet, in plain words (or null if it's fine). */
+export function dealProblem(d: Deal): string | null {
+  if (!d.name.trim()) return 'Give this brand a name.'
+  if (!d.startDate) return 'Pick a start date.'
+  if (d.endDate && d.endDate < d.startDate) return "The end date can't be before the start date."
+  if (d.platforms.length === 0) return 'Pick at least one platform to post to.'
+  return null
+}
 
 export const videosPerWeek = (d: Deal) => (d.quotaMode === 'week' ? d.videosPerWeek : d.videosPerDay * 7)
 
@@ -226,9 +237,10 @@ export function videosOn(d: Deal, date: string) {
   if (d.quotaMode !== 'week') return d.videosPerDay
   const days = liveDaysInWeek(d, weekStart(date))
   if (days.length === 0) return 0
-  const base = Math.floor(d.videosPerWeek / days.length)
-  const extra = d.videosPerWeek % days.length
-  return base + (days.indexOf(date) < extra ? 1 : 0)
+  // Spread the week's videos evenly (3 a week -> Mon, Wed, Fri) instead of front-loading them.
+  const i = days.indexOf(date)
+  const n = d.videosPerWeek
+  return Math.ceil(((i + 1) * n) / days.length) - Math.ceil((i * n) / days.length)
 }
 
 export function videosInWeek(d: Deal, start: string) {
@@ -273,7 +285,8 @@ export function rowsFor(deals: Deal[], checks: Map<string, Check>, date: string)
 export function missedRows(deals: Deal[], checks: Map<string, Check>, days = 30) {
   const t = today()
   const out: Row[] = []
-  for (let i = 1; i <= days; i++) for (const r of rowsFor(deals, checks, addDays(t, -i))) if (!r.done) out.push(r)
+  const live = deals.filter((d) => d.status === 'active') // a paused deal stops nagging about past posts
+  for (let i = 1; i <= days; i++) for (const r of rowsFor(live, checks, addDays(t, -i))) if (!r.done) out.push(r)
   return out
 }
 
