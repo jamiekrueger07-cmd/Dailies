@@ -83,6 +83,9 @@ Deno.serve(async (req) => {
       // Keep their billing interval unless they picked one on purpose.
       const current = item.price.recurring?.interval === 'year' ? 'year' : 'month'
       const iv = body.interval === 'year' || body.interval === 'month' ? body.interval : current
+      // No refunds: a yearly plan can't drop to monthly partway through (that would credit back the rest of the year).
+      if (current === 'year' && iv === 'month')
+        return json({ error: "You're on a yearly plan, so it can't switch to monthly partway through. Cancel it and pick monthly once the year ends." }, 409)
       const price = priceFor(tier, iv)
       if (item.price.id !== price) {
         // Going down from Pro Plus to Pro gives no credit back; otherwise someone could hop up, use Plus's
