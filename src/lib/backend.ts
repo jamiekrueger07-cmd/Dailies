@@ -26,7 +26,7 @@ export interface BriefVideo {
   title: string
   text: string
 }
-export type BriefOutline = { videos: BriefVideo[]; shared: string[] } | { fallback: true }
+export type BriefOutline = { videos: BriefVideo[]; shared: string[]; brief: string } | { fallback: true }
 /** note is set when fewer scripts came back than the brief had, because the user ran out of AI scripts. */
 export interface AiResult {
   scripts: ScriptDraft[]
@@ -59,7 +59,7 @@ export interface Backend {
   /** Reading a brief, step 1: find every video in it (free). fallback = read it the old one-shot way. */
   briefOutline(req: { brand: string; text?: string; file?: { name: string; type: string; data: string } }): Promise<BriefOutline>
   /** Reading a brief, step 2: turn one video into a script card (uses 1 AI script). Throws code RATE_LIMIT when the AI is busy. */
-  briefCard(req: { brand: string; video: BriefVideo; shared: string[] }): Promise<ScriptDraft>
+  briefCard(req: { brand: string; video: BriefVideo; shared: string[]; brief?: string }): Promise<ScriptDraft>
   startCheckout(interval: Interval, tier: Tier): Promise<void>
   buyTopup(): Promise<void>
   openBillingPortal(): Promise<void>
@@ -370,7 +370,7 @@ function cloud(sb: SupabaseClient): Backend {
     async briefOutline(req) {
       const data = await invokeAiWith(sb, { mode: 'outline', ...req })
       if (data?.fallback) return { fallback: true }
-      return { videos: data.videos as BriefVideo[], shared: (data.shared ?? []) as string[] }
+      return { videos: data.videos as BriefVideo[], shared: (data.shared ?? []) as string[], brief: String(data.brief ?? '') }
     },
     async briefCard(req) {
       const data = await invokeAiWith(sb, { mode: 'card', ...req })
