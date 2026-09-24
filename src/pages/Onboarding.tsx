@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Wordmark } from '../components/Brand'
 import { DealForm } from '../components/DealForm'
-import { FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, WEEKDAYS, type Deal } from '../lib/model'
+import { dealProblem, FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, WEEKDAYS, type Deal } from '../lib/model'
 import { useApp } from '../state'
 
 export const PENDING_KEY = 'dailies:pendingDeals'
@@ -15,10 +15,13 @@ export function OnboardingPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [busy, setBusy] = useState(false)
 
+  // Keep what they already typed if they go Back and press Next again.
   const start = () => {
-    setDeals(Array.from({ length: count }, (_, i) => newDeal(i)))
+    setDeals((cur) => (cur.length === count ? cur : [...cur.slice(0, count), ...Array.from({ length: Math.max(0, count - cur.length) }, (_, i) => newDeal(cur.length + i))]))
     setStep(1)
   }
+  const named = (list: Deal[]) => list.map((d, i) => ({ ...d, name: d.name.trim() || `Brand ${i + 1}` }))
+  const problem = named(deals).map(dealProblem).find(Boolean) ?? null
   const clean = (list: Deal[]) => list.map((d, i) => ({ ...d, name: d.name.trim() || `Brand ${i + 1}`, sortOrder: i }))
   const tot = deals.reduce(
     (a, d) => ({
@@ -78,10 +81,11 @@ export function OnboardingPage() {
               <button className="btn" onClick={() => setStep(0)}>
                 Back
               </button>
-              <button className="btn primary" onClick={() => setStep(2)} disabled={deals.some((d) => d.platforms.length === 0)}>
+              <button className="btn primary" onClick={() => setStep(2)} disabled={!!problem}>
                 Next
               </button>
             </div>
+            {problem && <p className="muted small">{problem}</p>}
           </>
         )}
         {step === 2 && (
@@ -108,9 +112,9 @@ export function OnboardingPage() {
               )}
             </div>
             <ul className="summary-list">
-              {deals.map((d) => (
+              {named(deals).map((d) => (
                 <li key={d.id}>
-                  <span className="dot" style={{ background: d.color }} /> <b>{d.name || 'Untitled'}</b>: {videosPerWeek(d)} a week on{' '}
+                  <span className="dot" style={{ background: d.color }} /> <b>{d.name}</b>: {videosPerWeek(d)} a week on{' '}
                   {d.platforms.map((p) => PLATFORMS.find((x) => x.id === p)!.short).join(', ')}
                   {d.needsApproval && <> · approval needed</>}
                   {d.filmDay != null && <> · film {WEEKDAYS[d.filmDay]}s</>}
