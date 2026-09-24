@@ -83,7 +83,8 @@ function pdfPageCountText(text: string) {
   let rootCount = 0
   const pageIds = new Set<string>()
   for (const o of text.split(/\bendobj\b/)) {
-    const id = o.match(/(\d+)\s+\d+\s+obj\b(?![\s\S]*\bobj\b)/)?.[1]
+    // The chunk's own object number is the last "N G obj" in it. Bounded digits keep this fast on huge files.
+    const id = [...o.matchAll(/(\d{1,10})\s+\d{1,5}\s+obj\b/g)].at(-1)?.[1]
     if (/\/Type\s*\/Pages\b/.test(o)) {
       const c = o.match(/\/Count\s+(\d+)/)
       if (c && !/\/Parent\b/.test(o)) rootCount = Number(c[1])
@@ -91,9 +92,21 @@ function pdfPageCountText(text: string) {
   }
   return rootCount || pageIds.size
 }
-function pdfPages(b64: string) {
-  return pdfPageCountText(atob(b64))
+/** Page count; when the quick scan can't tell (compressed PDFs), ask the PDF reader. */
+async function pdfPages(b64: string) {
+  const quick = pdfPageCountText(atob(b64))
+  if (quick) return quick
+  try {
+    const { getDocumentProxy } = await import('npm:unpdf@1.8.1')
+    const bin = atob(b64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    return (await getDocumentProxy(bytes)).numPages
+  } catch {
+    return PDF_PAGE_LIMIT + 1 // unreadable: treat as too long rather than letting it through
+  }
 }
+const cap = (v: unknown, n: number) => String(v ?? '').slice(0, n)
 
 const SPLIT_PROMPT = (brand: string) => `You are organizing a UGC creator's brand brief for "${brand}".
 Split it into one script per video the creator has to film. Rules:
@@ -308,7 +321,13 @@ Deno.serve(async (req) => {
     if ((left ?? 0) <= 0) return json({ error: 'AI_LIMIT' }, 429)
 
     const body = await req.json()
-    const brand = String(body.brand ?? 'the brand')
+    const brand = cap(body.brand || 'the brand', 100)
+
+    // Safety net on our AI bill: a per-person daily spend cap (normal use is a small fraction of it).
+    const dayCap = Number(Deno.env.get('AI_DAILY_COST_CAP') ?? 5)
+    const { data: today } = await admin.from('ai_runs').select('cost_usd').eq('user_id', user.id).gte('created_at', new Date(Date.now() - 864e5).toISOString())
+    const spent = (today ?? []).reduce((t: number, r: any) => t + Number(r.cost_usd ?? 0), 0)
+    if (spent >= dayCap) return json({ error: "You've used a lot of AI in the last 24 hours. Try again tomorrow, or email support@dailies.digital if you need more today." }, 429)
     // The creator's own note that came with the brief ("skip the warm-ups", "film at the gym").
     const notes = typeof body.notes === 'string' ? body.notes.trim().slice(0, 2000) : ''
     const notesBlock = notes ? `\n\n<creator_notes>\n${notes}\n</creator_notes>` : ''
@@ -338,7 +357,7 @@ Deno.serve(async (req) => {
       let text: string = typeof body.text === 'string' ? body.text : ''
       if (body.file?.type === 'application/pdf' && body.file.data) {
         if (body.file.data.length > 11_000_000) return json({ error: 'That file is too big. Try under 8 MB.' }, 413)
-        const pages = pdfPages(body.file.data)
+        const pages = await pdfPages(body.file.data)
         if (pages > PDF_PAGE_LIMIT) return json({ error: `That PDF has ${pages} pages. The limit is ${PDF_PAGE_LIMIT}, so export just the script pages.` }, 413)
         try {
           text = await pdfText(body.file.data)
@@ -360,7 +379,7 @@ Deno.serve(async (req) => {
           const a = Math.max(1, Math.min(lines.length, Number(v.start_line) || 0))
           const b = Math.max(a, Math.min(lines.length, Number(v.end_line) || a))
           const week = Math.max(1, Math.min(12, Math.round(Number(v.week)) || 1))
-          return { label: String(v.label ?? '').slice(0, 80), title: String(v.title ?? '').slice(0, 140), week, text: lines.slice(a - 1, b).join('\n').trim() }
+          return { label: cap(v.label, 80), title: cap(v.title, 140), week, text: lines.slice(a - 1, b).join('\n').trim() }
         })
         .filter((v: any) => v.text)
       const shared = asList(input.shared_rules).map((r: any) => String(r)).filter(Boolean)
@@ -370,8 +389,9 @@ Deno.serve(async (req) => {
 
     // ---- Brief, step 2: one video -> one script card. Uses 1 AI script. ----
     if (body.mode === 'card') {
-      const v = body.video ?? {}
-      const shared: string[] = Array.isArray(body.shared) ? body.shared.map(String).slice(0, 30) : []
+      const raw = body.video ?? {}
+      const v = { label: cap(raw.label, 200), title: cap(raw.title, 200), text: raw.text }
+      const shared: string[] = Array.isArray(body.shared) ? body.shared.slice(0, 40).map((r: unknown) => cap(r, 500)) : []
       const text = repairLinks(String(v.text ?? '').slice(0, 20_000))
       if (!text.trim()) return json({ error: 'Nothing to turn into a script.' }, 400)
       const cardModel = Deno.env.get('ANTHROPIC_MODEL_CARD') ?? Deno.env.get('ANTHROPIC_MODEL_WRITE') ?? 'claude-sonnet-5'
@@ -423,7 +443,7 @@ Deno.serve(async (req) => {
       system = SPLIT_PROMPT(brand)
       if (body.file?.type === 'application/pdf' && body.file.data) {
         if (body.file.data.length > 11_000_000) return json({ error: 'That file is too big. Try under 8 MB.' }, 413)
-        const pages = pdfPages(body.file.data)
+        const pages = await pdfPages(body.file.data)
         if (pages > PDF_PAGE_LIMIT) return json({ error: `That PDF has ${pages} pages. The limit is ${PDF_PAGE_LIMIT}, so export just the script pages.` }, 413)
         content = [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: body.file.data } },
@@ -433,7 +453,17 @@ Deno.serve(async (req) => {
         content = [{ type: 'text', text: `Here is the brief:\n\n<brief>\n${body.text.slice(0, 60_000)}\n</brief>${notesBlock}\n\nSplit it into scripts and save them.` }]
       } else return json({ error: 'Paste the brief or upload a file first.' }, 400)
     } else if (body.mode === 'write') {
-      const b = body.brief ?? {}
+      const r = body.brief ?? {}
+      const b = {
+        brand: cap(r.brand, 100),
+        product: cap(r.product, 500),
+        mustSay: cap(r.mustSay, 3000),
+        count: r.count,
+        formats: Array.isArray(r.formats) ? r.formats.slice(0, 8).map((f: unknown) => cap(f, 40)) : [],
+        length: cap(r.length, 20),
+        tone: cap(r.tone, 30),
+        avoid: cap(r.avoid, 500),
+      }
       const count = Math.min(14, Math.max(1, Number(b.count) || 3))
       if (count > left) return json({ error: `You have ${left} AI script${left === 1 ? '' : 's'} left. Lower the number or get more.` }, 429)
       hold = count
