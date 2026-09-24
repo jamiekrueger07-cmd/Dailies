@@ -139,21 +139,27 @@ Find every separate video the creator has to make: warm-up videos, and each scri
 - shared_rules: the requirements repeated for all videos (e.g. "Send all videos to Jayden for approval before posting", caption style, font, lighting, "Must show the demo on screen"). Include each rule once.
 - Ignore payment terms, contracts and contact details.`
 
-// Step 2: turn one video into a ready-to-film script card, the same way the creator's script desk does.
-const CARD_PROMPT = (brand: string) => `You turn ONE video from a UGC creator's brand brief for "${brand}" into a clean, ready-to-film script card.
-Rules:
-- Keep the brand's exact words for everything spoken or shown on screen. Never rewrite, shorten, improve or invent lines. Only repair broken PDF line wraps and obvious glued words (e.g. "Collegehttps://" -> "College" + link). Links split across two lines must be joined back into one URL.
-- steps, in filming order:
-  - "beat" = section headings. Start with "Hook", then follow the script's own structure (e.g. "Number one", "Tip 2", "Demo"), and end with "CTA" if there is a call to action.
-  - "say" = every spoken line, word for word. Break long paragraphs into natural lines of one to three sentences. Every word of the script must appear once.
-  - "show" = what to film or put on screen, taken from THIS video's directions (e.g. "Show the LearnKata demo on your laptop or iPad"). If the rules require the product/demo on screen, add ONE "show" step at the moment the script talks about the product. Don't turn the other general rules (lighting, captions, fonts, approval) into steps; they go in notes.
-  - "text" = on-screen text, hooks, lists and overlays, verbatim. Text that is meant to be read on screen rather than spoken (e.g. a list hook like "10 out of 10 study habits...") is a "text" step. If the brief says to copy the inspiration video's on-screen text or hook, add a "text" step: "Use the same on-screen hook as the inspo video".
-- hook: the on-screen or spoken hook (the first thing viewers see or hear).
-- title: start with the brief's label (e.g. "Warm-up 2" or "Week 1 · Script 2"), then ": " and the script's title if it has one, otherwise a short name from its topic.
-- format: e.g. "Talking head · ~75 sec". Estimate length only from the words in your "say" steps (2.5 words per second). If there are no spoken lines, leave the length out, e.g. "On-screen text · follow the inspo".
-- caption: caption and hashtags from the brief, verbatim. Empty if none.
-- notes: a single string with one item per line (separate lines with a line break), each starting with "• ": first the inspiration/reference link(s) as full URLs ("• Inspo: https://..."), then anything specific to this video (e.g. "Text first if you have any questions"), then the brand rules that apply to every video.
-- If this video is only a link or only instructions, still return one card: put the directions in "show"/"text" steps and the link in notes. Do not invent spoken lines.
+// Step 2: turn one video into a ready-to-film script card, the way the creator's script desk does.
+const CARD_PROMPT = (brand: string) => `You are the creator's script desk for "${brand}". Turn ONE video from the brand's brief into a complete, ready-to-film script card, the way an experienced UGC producer would.
+
+You get: this video's part of the brief, the brand rules, sometimes the full brief, and, when the brief links an inspiration ("inspo") video, that video's creator, caption and cover image. Study the cover image: its on-screen text is usually the hook, and it shows the setting, framing, props and text style to copy.
+
+Two cases:
+A) The brief gives a written script: keep every spoken word exactly as written. Only repair PDF line breaks and glued words, and join links split across lines. Never rewrite, shorten or add spoken lines.
+B) The brief gives only an inspo link and/or instructions: write the whole video yourself, following the inspo's format (same kind of hook, pacing, setting and on-screen text style) adapted to ${brand}. Use only product facts that appear in the brief or rules; never invent features, prices, stats or claims. Spoken lines are short, natural and first person. If the inspo is a skit, a reaction or a text-only video, write it that way. If the instructions point to another part of the brief (e.g. "follow the Week 2 format"), use the full brief to follow it.
+
+Steps, in this order, with these "beat" headings:
+1. beat "Set the shot", then 2-4 "show" steps: where to film, framing, props, what you're doing, and when to cut to the ${brand} demo or screen recording.
+2. beat "Hook text", then the on-screen hook as a "text" step. If the brief says to use the same on-screen text/hook as the inspo and you can read it on the cover, copy it exactly. If you can't read it, write "Same hook as the inspo:" plus your best description.
+3. beat "What you say", then the spoken lines as "say" steps (one to three sentences each), with "show" steps for pauses, reactions or cuts where they happen, and ONE "show" step at the moment the ${brand} demo appears if the rules require it. For text-only videos use a "text" step per overlay instead.
+4. beat "End" only if there is a call to action or a final beat, with its lines.
+
+Fields:
+- title: the brief's label, then ": ", then the script's title or a short, specific name (e.g. "Week 1 · Script 4: Surviving your first year of college").
+- hook: the on-screen hook text (or the first spoken line if there is no on-screen hook).
+- format: format and length, e.g. "Talking head · ~60 sec" or "List overlays · ~30 sec" (length from spoken words at 2.5 words per second).
+- caption: if the brief gives a caption, use it verbatim. Otherwise write one short caption line in the creator's voice that fits the video, then the brief's hashtags verbatim.
+- notes: a single string, one item per line, each starting with "• ": "• The format: " plus one or two sentences on what the inspo does and how this version adapts it; "• Inspo: " plus the full URL; anything specific to this video from the brief (e.g. "Text first if you have any questions"); in case B "• Written from the inspo, not the brand's wording. Check it before filming."; then the brand rules.
 Return exactly one script.`
 
 const WRITE_PROMPT = `You write short-form UGC video scripts for creators posting brand deals on TikTok, Instagram Reels and YouTube Shorts.
@@ -215,6 +221,58 @@ const cleanScripts = (raw: unknown) =>
 function asText(v: unknown): string {
   if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean).join('\n')
   return String(v ?? '')
+}
+
+
+// ---------- reading the inspo links in a brief ----------
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
+const timed = (ms: number) => AbortSignal.timeout(ms)
+const unescapeHtml = (t: string) =>
+  t.replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+
+/** PDFs break long links over two lines; glue the second half back on. */
+function repairLinks(t: string) {
+  return t.replace(/(https?:\/\/\S+)\n(\S+)/g, (m, a, b) => (/[\d%&=?_/]/.test(b) && !/^https?:/i.test(b) ? a + b : m)).replace(/(\S)(https?:\/\/)/g, '$1 $2')
+}
+
+async function fetchImage(url: string, ua = BROWSER_UA) {
+  try {
+    const r = await fetch(url, { headers: { 'user-agent': ua }, redirect: 'follow', signal: timed(8000) })
+    const type = (r.headers.get('content-type') ?? '').split(';')[0]
+    if (!r.ok || !/^image\/(jpeg|png|webp|gif)$/.test(type)) return null
+    const buf = new Uint8Array(await r.arrayBuffer())
+    if (buf.length > 4_500_000) return null
+    let bin = ''
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
+    return { type: 'image', source: { type: 'base64', media_type: type, data: btoa(bin) } }
+  } catch {
+    return null
+  }
+}
+
+/** What we can learn about an inspo video without logging in: creator, caption and cover image. */
+async function readRef(url: string): Promise<{ note: string; image: unknown | null }> {
+  try {
+    if (/tiktok\.com/i.test(url)) {
+      const r = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`, { signal: timed(8000) })
+      if (!r.ok) throw new Error(String(r.status))
+      const j = await r.json()
+      return { note: `TikTok inspo by @${j.author_unique_id ?? j.author_name}: caption "${String(j.title ?? '').slice(0, 400)}"`, image: j.thumbnail_url ? await fetchImage(j.thumbnail_url) : null }
+    }
+    const ig = url.match(/instagram\.com\/(?:[\w.]+\/)?(?:reels?|p|tv)\/([\w-]+)/i)
+    if (ig) {
+      const r = await fetch(`https://www.instagram.com/reel/${ig[1]}/`, { headers: { 'user-agent': 'facebookexternalhit/1.1' }, signal: timed(8000) })
+      const html = r.ok ? await r.text() : ''
+      const meta = (p: string) => unescapeHtml(html.match(new RegExp(`<meta[^>]+property="og:${p}"[^>]+content="([^"]*)"`))?.[1] ?? '')
+      const title = meta('title') || meta('description')
+      const image = await fetchImage(`https://www.instagram.com/p/${ig[1]}/media/?size=l`)
+      if (!title && !image) throw new Error('blocked')
+      return { note: `Instagram inspo: ${title.slice(0, 400) || '(caption not available)'}`, image }
+    }
+    return { note: `Other link: ${url}`, image: null }
+  } catch {
+    return { note: `Couldn't open the inspo ${url}. Base the video on the brief and say in notes to check the inspo.`, image: null }
+  }
 }
 
 async function pdfText(b64: string) {
@@ -283,28 +341,42 @@ Deno.serve(async (req) => {
         .filter((v: any) => v.text)
       const shared = asList(input.shared_rules).map((r: any) => String(r)).filter(Boolean)
       if (!videos.length) return json({ error: "Couldn't find any videos in that brief. Try pasting just the script part." }, 422)
-      return json({ videos, shared })
+      return json({ videos, shared, brief: text })
     }
 
     // ---- Brief, step 2: one video -> one script card. Uses 1 AI script. ----
     if (body.mode === 'card') {
       const v = body.video ?? {}
       const shared: string[] = Array.isArray(body.shared) ? body.shared.map(String).slice(0, 30) : []
-      const text = String(v.text ?? '').slice(0, 20_000)
+      const text = repairLinks(String(v.text ?? '').slice(0, 20_000))
       if (!text.trim()) return json({ error: 'Nothing to turn into a script.' }, 400)
-      const msg = [
-        `Brief label: ${v.label || '(none)'}${v.title ? `\nScript title: ${v.title}` : ''}`,
-        `Rules that apply to every video:\n${shared.length ? shared.map((r) => `- ${r}`).join('\n') : '(none given)'}`,
-        `<video>\n${text}\n</video>`,
-        'Turn this video into one script card and save it.',
-      ].join('\n\n')
-      // 4800 keeps two cards at a time under a new account's per-minute limit; a very long script gets a second, roomier try.
-      let res = await claude(splitModel, CARD_PROMPT(brand), [{ type: 'text', text: msg }], TOOL, 4800)
-      if (res.truncated) res = await claude(splitModel, CARD_PROMPT(brand), [{ type: 'text', text: msg }], TOOL, 12000)
+      const cardModel = Deno.env.get('ANTHROPIC_MODEL_CARD') ?? Deno.env.get('ANTHROPIC_MODEL_WRITE') ?? 'claude-sonnet-5'
+      // Open the inspo links (up to 2) so the card can copy the real hook, setting and format.
+      const urls = [...new Set(text.match(/https?:\/\/[^\s)>\]]+/g) ?? [])].slice(0, 2)
+      const refs = await Promise.all(urls.map(readRef))
+      const content: unknown[] = []
+      // Only send the whole brief when this video points somewhere else in it ("follow the Week 2 format").
+      const brief = typeof body.brief === 'string' ? body.brief.slice(0, 60_000) : ''
+      if (brief && /\b(week\s*\d|section|above|below|earlier|previous|same as|format showed|format shown)\b/i.test(text))
+        content.push({ type: 'text', text: `<full_brief>\n${brief}\n</full_brief>`, cache_control: { type: 'ephemeral' } })
+      refs.forEach((r) => r.image && content.push(r.image))
+      content.push({
+        type: 'text',
+        text: [
+          `Brief label: ${v.label || '(none)'}${v.title ? `\nScript title: ${v.title}` : ''}`,
+          `Rules that apply to every video:\n${shared.length ? shared.map((r) => `- ${r}`).join('\n') : '(none given)'}`,
+          refs.length ? `Inspo videos (cover images attached above, in this order):\n${refs.map((r, i) => `${i + 1}. ${urls[i]}\n   ${r.note}`).join('\n')}` : 'No inspo link for this video.',
+          `<video>\n${text}\n</video>`,
+          'Turn this video into one script card and save it.',
+        ].join('\n\n'),
+      })
+      // 4000 keeps two cards at a time under a new account's per-minute limit; a very long script gets one roomier try.
+      let res = await claude(cardModel, CARD_PROMPT(brand), content, TOOL, 4000)
+      if (res.truncated) res = await claude(cardModel, CARD_PROMPT(brand), content, TOOL, 7500)
       const { input, inTok, outTok, truncated } = res
       const scripts = cleanScripts(input.scripts).slice(0, 1)
       if (!scripts.length) return json({ error: truncated ? 'That script was too long to format in one go.' : "Couldn't turn that part into a script." }, 422)
-      await log('card', 1, splitModel, inTok, outTok)
+      await log('card', 1, cardModel, inTok, outTok)
       return json({ scripts })
     }
 
