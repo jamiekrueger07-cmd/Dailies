@@ -423,3 +423,32 @@ revoke all on function public.reserve_ai(uuid, text, int) from public, anon, aut
 revoke all on function public.finish_ai_run(bigint, int, text, int, int, numeric) from public, anon, authenticated;
 revoke all on function public.my_ai_left() from public, anon;
 grant execute on function public.my_ai_left() to authenticated;
+
+-- =====================================================================
+-- v7 (Sept 24): hourly reminder emails
+-- =====================================================================
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+-- A random secret made inside the database, so nobody has to copy it around.
+select vault.create_secret(encode(extensions.gen_random_bytes(32), 'hex'), 'dailies_cron_secret', 'Lets the hourly schedule run send-reminders')
+where not exists (select 1 from vault.secrets where name = 'dailies_cron_secret');
+
+-- send-reminders asks this to confirm a request really came from the schedule (server only).
+create or replace function public.check_cron_secret(s text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from vault.decrypted_secrets where name = 'dailies_cron_secret' and decrypted_secret = s)
+$$;
+revoke all on function public.check_cron_secret(text) from public, anon, authenticated;
+grant execute on function public.check_cron_secret(text) to service_role;
+
+-- Every hour at :05, check who is due a reminder in their own time zone.
+select cron.schedule('dailies-send-reminders', '5 * * * *', $cron$
+  select net.http_post(
+    url := 'https://jibnhgijjwmxitkablvg.supabase.co/functions/v1/send-reminders',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'dailies_cron_secret')),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 60000
+  )
+$cron$);
