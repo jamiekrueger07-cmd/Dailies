@@ -75,9 +75,24 @@ function costUsd(model: string, input: number, output: number) {
   return (input * i + output * o) / 1_000_000
 }
 
+// Real page count: read the page tree's /Count from the root /Pages object (the one with no /Parent).
+// Counting every "/Type /Page" overcounts PDFs that were saved or edited several times (Canva, Acrobat),
+// because each save repeats the page objects. If a PDF was saved several times, the last copy wins.
+// Falls back to counting distinct page objects. Returns 0 when it can't tell (compressed PDFs).
+function pdfPageCountText(text: string) {
+  let rootCount = 0
+  const pageIds = new Set<string>()
+  for (const o of text.split(/\bendobj\b/)) {
+    const id = o.match(/(\d+)\s+\d+\s+obj\b(?![\s\S]*\bobj\b)/)?.[1]
+    if (/\/Type\s*\/Pages\b/.test(o)) {
+      const c = o.match(/\/Count\s+(\d+)/)
+      if (c && !/\/Parent\b/.test(o)) rootCount = Number(c[1])
+    } else if (/\/Type\s*\/Page(?![A-Za-z])/.test(o) && id) pageIds.add(id)
+  }
+  return rootCount || pageIds.size
+}
 function pdfPages(b64: string) {
-  const bin = atob(b64)
-  return (bin.match(/\/Type\s*\/Page[^s]/g) ?? []).length
+  return pdfPageCountText(atob(b64))
 }
 
 const SPLIT_PROMPT = (brand: string) => `You are organizing a UGC creator's brand brief for "${brand}".
@@ -176,7 +191,10 @@ Deno.serve(async (req) => {
       }),
     })
     if (!r.ok) {
-      console.error('anthropic error', r.status, await r.text())
+      const errText = await r.text()
+      console.error('anthropic error', r.status, errText)
+      if (r.status === 400 && /pdf|page|document/i.test(errText))
+        return json({ error: `The AI couldn't read that PDF, it may be too long. Export just the script pages (up to ${PDF_PAGE_LIMIT}) and try again.` }, 413)
       return json({ error: 'The script helper is busy right now. Try again in a minute.' }, 502)
     }
     const out = await r.json()
