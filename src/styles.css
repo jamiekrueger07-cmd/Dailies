@@ -747,3 +747,9 @@ button.vid-label:hover { color: var(--ink); }
 :root[data-theme='dark'] .toast-undo { color: var(--forest); }
 :root:not([data-theme='dark']) { --muted: #66706a; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme='light']) { --muted: #9aa59e; } }
+
+/* ---------- v13: real app screenshots on the homepage ---------- */
+.demo.shot { padding: 0; overflow: hidden; background: #fafaf8; }
+.demo.shot img { display: block; width: 100%; height: auto; }
+.ex-shot { border-radius: 12px; overflow: hidden; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow-lift); }
+.ex-shot img { display: block; width: 100%; height: auto; }
