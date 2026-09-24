@@ -673,3 +673,13 @@ button.vid-label:hover { color: var(--ink); }
 @media (min-width: 1600px) {
   .features { grid-template-columns: repeat(3, 1fr); gap: 36px 56px; }
 }
+
+/* ---------- v10: reading a brief one video at a time ---------- */
+.brief-progress { margin: 4px 0 10px; }
+.brief-progress .bar { margin-top: 6px; }
+.draft-wrap { border-top: 1px solid var(--line); }
+.draft-wrap .draft { border-top: 0; }
+.draft > span { flex: 1; min-width: 0; }
+.draft-peek { flex: none; }
+.draft-preview { padding: 0 0 12px 26px; display: grid; gap: 6px; }
+.draft-notes { white-space: pre-line; color: var(--muted, #5b6660); }
