@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { backend } from './lib/backend'
-import { checkKey, DEFAULT_SETTINGS, localTimezone, FREE_DEAL_LIMIT, PLATFORMS, type Check, type Deal, type Profile, type Script, type ScriptDraft, type Settings, type Tier, type Video, uid } from './lib/model'
+import { checkKey, parse, DEFAULT_SETTINGS, localTimezone, FREE_DEAL_LIMIT, PLATFORMS, type Check, type Deal, type Profile, type Script, type ScriptDraft, type Settings, type Tier, type Video, uid } from './lib/model'
 
 
 // On a failed save, undo only the items that save touched, so other taps that did save stay on screen.
@@ -58,6 +58,8 @@ interface AppState {
   dropScripts(ids: string[]): Promise<void>
   addScripts(dealId: string, week: string, drafts: ScriptDraft[], source: Script['source']): Promise<void>
   toggleScriptDone(s: Script): Promise<void>
+  /** Move a saved script (and its film-list video) to another week. */
+  moveScript(s: Script, week: string): Promise<void>
   signOut(): Promise<void>
   upgradeOpen: string | null
   upgradeTier: Tier
@@ -354,6 +356,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     flash(`Added ${out.length} script${out.length === 1 ? '' : 's'}`)
   }
 
+  const moveScript = async (sc: Script, week: string) => {
+    if (week === sc.weekStart) return
+    const v = sc.videoId ? videos.find((x) => x.id === sc.videoId) : undefined
+    const sharedVideo = !!v && scripts.some((x) => x.id !== sc.id && x.videoId === v.id)
+    const vids: Video[] = []
+    let videoId = sc.videoId
+    if (v && sharedVideo) videoId = null // another script still uses that video, so leave it where it is
+    else if (v && v.weekStart !== week) {
+      const maxNo = videos.filter((x) => x.dealId === v.dealId && x.weekStart === week).reduce((m, x) => Math.max(m, x.no), 0)
+      vids.push({ ...v, weekStart: week, no: maxNo + 1 })
+      // Close the gap it leaves in the old week (1, 3 -> 1, 2).
+      videos
+        .filter((x) => x.dealId === v.dealId && x.weekStart === v.weekStart && x.id !== v.id)
+        .sort((a, b) => a.no - b.no)
+        .forEach((x, i) => x.no !== i + 1 && vids.push({ ...x, no: i + 1 }))
+    }
+    if (vids.length) await putVideos(vids)
+    await putScripts([{ ...sc, weekStart: week, videoId }])
+    flash(`Moved to the week of ${parse(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`)
+  }
+
   // Marking a script done marks its video filmed (and unmarking puts a just-filmed video back).
   const toggleScriptDone = async (sc: Script) => {
     const done = !sc.done
@@ -400,6 +423,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dropScripts,
     addScripts,
     toggleScriptDone,
+    moveScript,
     signOut,
     upgradeOpen,
     upgradeTier,
