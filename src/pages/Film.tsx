@@ -115,7 +115,7 @@ function VideoLine({
 }
 
 export function FilmPage() {
-  const { trackedDeals, videos, putVideos, dropVideos, scripts } = useApp()
+  const { trackedDeals, videos, putVideos, dropVideos, scripts, putScripts } = useApp()
   const [week, setWeek] = useState(weekStart(today()))
   const [open, setOpen] = useState<string | null>(null)
   const [view, setView] = useState<'shots' | 'scripts'>(() => {
@@ -158,13 +158,16 @@ export function FilmPage() {
   }
   const carryOver = async () => {
     const seen = new Map<string, number>()
-    await putVideos(
+    const ok = await putVideos(
       unshotLastWeek.map((v) => {
         const n = seen.get(v.dealId) ?? 0
         seen.set(v.dealId, n + 1)
         return { ...v, weekStart: week, no: nextNo(v.dealId, n) }
       }),
     )
+    // Their scripts come along, so "Script" on a carried-over video still finds it.
+    const ids = new Set(unshotLastWeek.map((v) => v.id))
+    if (ok) await putScripts(scripts.filter((sc) => sc.videoId && ids.has(sc.videoId) && sc.weekStart !== week).map((sc) => ({ ...sc, weekStart: week })))
   }
   const addOne = (d: Deal) =>
     putVideos([{ id: uid(), dealId: d.id, weekStart: week, no: nextNo(d.id), hook: '', format: '', notes: '', revision: '', status: 'idea', sortOrder: videos.length }])
