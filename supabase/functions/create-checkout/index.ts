@@ -74,13 +74,23 @@ Deno.serve(async (req) => {
     if (paid && profile?.stripe_subscription_id) {
       const sub = await stripe.subscriptions.retrieve(profile.stripe_subscription_id)
       const item = sub.items.data[0]
-      const price = priceFor(tier, interval)
+      // Keep their billing interval unless they picked one on purpose.
+      const current = item.price.recurring?.interval === 'year' ? 'year' : 'month'
+      const iv = body.interval === 'year' || body.interval === 'month' ? body.interval : current
+      const price = priceFor(tier, iv)
       if (item.price.id !== price) {
-        await stripe.subscriptions.update(sub.id, {
-          items: [{ id: item.id, price }],
-          proration_behavior: 'create_prorations',
-          metadata: { ...sub.metadata, user_id: user.id },
-        })
+        try {
+          // Charge the difference now (not at renewal), and only switch if that payment goes through.
+          await stripe.subscriptions.update(sub.id, {
+            items: [{ id: item.id, price }],
+            proration_behavior: 'always_invoice',
+            payment_behavior: 'error_if_incomplete',
+            metadata: { ...sub.metadata, user_id: user.id },
+          })
+        } catch (e) {
+          console.error('plan switch failed', e)
+          return json({ error: "Your card didn't go through, so your plan didn't change. Update your card in Manage billing and try again." }, 402)
+        }
       }
       // the webhook updates the plan; the app waits for it on this page
       return json({ url: `${site}/app/account?checkout=success` })
