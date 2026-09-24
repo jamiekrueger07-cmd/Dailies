@@ -298,3 +298,128 @@ end $$;
 revoke all on function public.ai_scripts_left(uuid) from public, anon, authenticated;
 revoke all on function public.record_ai_run(uuid, text, int, text, int, int, numeric) from public, anon, authenticated;
 revoke all on function public.add_topup(text, uuid, int, int) from public, anon, authenticated;
+-- =====================================================================
+-- v6 (Sept 24): bug-hunt fixes
+-- =====================================================================
+
+-- 1. Rows can only point at your own brand deal (stops someone planting posts/links on another creator's report).
+drop policy if exists "own checks" on public.post_checks;
+create policy "own checks" on public.post_checks for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id and exists (select 1 from public.deals d where d.id = deal_id and d.user_id = auth.uid()));
+drop policy if exists "own videos" on public.videos;
+create policy "own videos" on public.videos for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id and exists (select 1 from public.deals d where d.id = deal_id and d.user_id = auth.uid()));
+drop policy if exists "own scripts" on public.scripts;
+create policy "own scripts" on public.scripts for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id and exists (select 1 from public.deals d where d.id = deal_id and d.user_id = auth.uid()));
+
+-- ...and a shared report only ever shows the creator's own posts.
+create or replace function public.get_shared_report(share_token text) returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object(
+    'month', s.month,
+    'creator_name', s.creator_name,
+    'deal', json_build_object(
+      'id', d.id, 'name', d.name, 'color', d.color, 'quota_mode', d.quota_mode,
+      'videos_per_day', d.videos_per_day, 'videos_per_week', d.videos_per_week,
+      'needs_approval', d.needs_approval, 'platforms', d.platforms,
+      'start_date', d.start_date, 'end_date', d.end_date, 'film_day', null, 'status', d.status
+    ),
+    'checks', coalesce((
+      select json_agg(json_build_object('deal_id', c.deal_id, 'date', c.date, 'video_no', c.video_no, 'platform', c.platform, 'link', c.link))
+      from public.post_checks c
+      where c.deal_id = s.deal_id and c.user_id = s.user_id and to_char(c.date, 'YYYY-MM') = s.month
+    ), '[]'::json)
+  )
+  from public.report_shares s join public.deals d on d.id = s.deal_id and d.user_id = s.user_id
+  where s.token = share_token
+$$;
+revoke all on function public.get_shared_report(text) from public;
+grant execute on function public.get_shared_report(text) to anon, authenticated;
+
+-- 2. Free plan limit: lock the profile row so two quick inserts can't both slip past the count.
+create or replace function public.enforce_deal_limit() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  user_plan text;
+  n int;
+begin
+  -- upserts of an existing deal are edits, not new deals
+  if exists (select 1 from public.deals where id = new.id) then return new; end if;
+  select plan into user_plan from public.profiles where id = new.user_id for update;
+  if coalesce(user_plan, 'free') in ('pro', 'plus') then return new; end if;
+  select count(*) into n from public.deals where user_id = new.user_id;
+  if n >= 2 then
+    raise exception 'FREE_PLAN_LIMIT: the Free plan covers 2 brand deals';
+  end if;
+  return new;
+end $$;
+
+-- 3. AI scripts: count the trial as one window (not per calendar month), and reserve scripts
+--    BEFORE the AI runs so parallel requests can't overspend. Unused reservations are refunded.
+alter table public.ai_runs add column if not exists from_bonus int not null default 0;
+
+create or replace function public.ai_used(uid uuid) returns int
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum(r.scripts), 0)::int
+  from public.ai_runs r, public.profiles p
+  where p.id = uid and r.user_id = uid
+    and r.created_at >= case
+      when p.subscription_status = 'trialing' and p.trial_end is not null then least(date_trunc('month', now()), p.trial_end - interval '7 days')
+      else date_trunc('month', now()) end
+$$;
+
+create or replace function public.ai_scripts_left(uid uuid) returns int
+language sql stable security definer set search_path = public as $$
+  select greatest(0, public.ai_allowance_now(p.plan, p.subscription_status) - public.ai_used(uid))
+         + greatest(0, p.ai_bonus)
+  from public.profiles p where p.id = uid
+$$;
+
+-- Take n AI scripts now (monthly allowance first, then top-ups). Returns the run id, or null if there aren't enough.
+create or replace function public.reserve_ai(uid uuid, run_mode text, n int) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  p record;
+  from_month int;
+  rid bigint;
+begin
+  select plan, subscription_status, ai_bonus into p from public.profiles where id = uid for update;
+  if not found or n < 0 then return null; end if;
+  from_month := least(n, greatest(0, public.ai_allowance_now(p.plan, p.subscription_status) - public.ai_used(uid)));
+  if n - from_month > greatest(0, p.ai_bonus) then return null; end if;
+  if n > from_month then update public.profiles set ai_bonus = ai_bonus - (n - from_month) where id = uid; end if;
+  insert into public.ai_runs (user_id, mode, scripts, from_bonus) values (uid, run_mode, n, n - from_month) returning id into rid;
+  return rid;
+end $$;
+
+-- Close a reservation with what was actually delivered; anything unused goes back (top-ups first).
+create or replace function public.finish_ai_run(rid bigint, n int, run_model text, in_tok int, out_tok int, cost numeric) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  r record;
+  back int;
+  back_bonus int;
+begin
+  select * into r from public.ai_runs where id = rid for update;
+  if not found then return; end if;
+  back := greatest(0, r.scripts - greatest(0, n));
+  back_bonus := least(r.from_bonus, back);
+  if back_bonus > 0 then update public.profiles set ai_bonus = ai_bonus + back_bonus where id = r.user_id; end if;
+  update public.ai_runs set scripts = r.scripts - back, from_bonus = r.from_bonus - back_bonus,
+    model = coalesce(run_model, model), input_tokens = coalesce(in_tok, input_tokens), output_tokens = coalesce(out_tok, output_tokens), cost_usd = coalesce(cost, cost_usd)
+  where id = rid;
+end $$;
+
+-- The app asks the server how many AI scripts are left, so the counter always matches.
+create or replace function public.my_ai_left() returns int
+language sql stable security definer set search_path = public as $$
+  select public.ai_scripts_left(auth.uid())
+$$;
+
+revoke all on function public.ai_used(uuid) from public, anon, authenticated;
+revoke all on function public.ai_scripts_left(uuid) from public, anon, authenticated;
+revoke all on function public.reserve_ai(uuid, text, int) from public, anon, authenticated;
+revoke all on function public.finish_ai_run(bigint, int, text, int, int, numeric) from public, anon, authenticated;
+revoke all on function public.my_ai_left() from public, anon;
+grant execute on function public.my_ai_left() to authenticated;
