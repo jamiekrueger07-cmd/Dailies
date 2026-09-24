@@ -69,8 +69,20 @@ function email(lines: { name: string; left: number; total: number }[], site: str
   }
 }
 
+// Only the hourly schedule may run this. Its secret lives in the database vault (or the CRON_SECRET env var).
+async function fromCron(req: Request) {
+  const got = req.headers.get('x-cron-secret')
+  if (!got) return false
+  const env = Deno.env.get('CRON_SECRET')
+  if (env && got === env) return true
+  const { data } = await admin.rpc('check_cron_secret', { s: got })
+  return data === true
+}
+
 Deno.serve(async (req) => {
-  if (req.headers.get('x-cron-secret') !== Deno.env.get('CRON_SECRET')) return new Response('Forbidden', { status: 403 })
+  if (!(await fromCron(req))) return new Response('Forbidden', { status: 403 })
+  // Don't mark anyone as reminded until email is actually set up.
+  if (!Deno.env.get('RESEND_API_KEY') || !Deno.env.get('REMINDER_FROM')) return new Response('Email not set up yet', { status: 503 })
   const site = Deno.env.get('SITE_URL')!.replace(/\/+$/, '')
 
   // Page through everyone with reminders on (a single query stops at 1,000 rows).
