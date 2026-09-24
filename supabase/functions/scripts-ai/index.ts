@@ -52,6 +52,23 @@ const TOOL = {
 
 const PDF_PAGE_LIMIT = 20
 
+// The model sometimes sends a list as a JSON string, or a single object. Always get an array back.
+function asList(v: unknown): any[] {
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v)
+    } catch {
+      return []
+    }
+  }
+  if (Array.isArray(v)) return v
+  if (v && typeof v === 'object') {
+    const inner = (v as any).scripts ?? (v as any).steps
+    return inner !== undefined ? asList(inner) : [v]
+  }
+  return []
+}
+
 // Price per million tokens, for the cost log. Update if Anthropic changes prices.
 function costUsd(model: string, input: number, output: number) {
   const [i, o] = model.includes('haiku') ? [1, 5] : [2, 10]
@@ -164,13 +181,13 @@ Deno.serve(async (req) => {
     }
     const out = await r.json()
     const call = (out.content ?? []).find((c: any) => c.type === 'tool_use')
-    let scripts = (call?.input?.scripts ?? [])
+    let scripts = asList(call?.input?.scripts)
       .filter((s: any) => s && (s.title || s.hook))
       .map((s: any) => ({
         title: String(s.title ?? '').slice(0, 140),
         hook: String(s.hook ?? ''),
         format: String(s.format ?? ''),
-        steps: (Array.isArray(s.steps) ? s.steps : [])
+        steps: asList(s.steps)
           .filter((x: any) => x && ['beat', 'say', 'show', 'text'].includes(x.kind) && x.text)
           .map((x: any) => ({ kind: x.kind, text: String(x.text) })),
         caption: String(s.caption ?? ''),
