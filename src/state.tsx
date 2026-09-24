@@ -2,6 +2,26 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { backend } from './lib/backend'
 import { checkKey, DEFAULT_SETTINGS, localTimezone, FREE_DEAL_LIMIT, PLATFORMS, type Check, type Deal, type Profile, type Script, type ScriptDraft, type Settings, type Tier, type Video, uid } from './lib/model'
 
+
+// On a failed save, undo only the items that save touched, so other taps that did save stay on screen.
+function restoreById<T extends { id: string }>(cur: T[], before: T[], ids: Iterable<string>, order?: (a: T, b: T) => number): T[] {
+  const want = new Set(ids)
+  const kept = cur.filter((x) => !want.has(x.id))
+  const back = before.filter((x) => want.has(x.id))
+  const out = [...kept, ...back]
+  return order ? out.sort(order) : out
+}
+function restoreKeys<V>(cur: Map<string, V>, before: Map<string, V>, keys: Iterable<string>): Map<string, V> {
+  const m = new Map(cur)
+  for (const k of keys) {
+    const v = before.get(k)
+    if (v === undefined) m.delete(k)
+    else m.set(k, v)
+  }
+  return m
+}
+const bySort = (a: { sortOrder: number; id: string }, b: { sortOrder: number; id: string }) => a.sortOrder - b.sortOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+
 export interface Toast {
   msg: string
   undo?: () => void
@@ -128,8 +148,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const isPlus = profile.plan === 'plus'
   const { trackedDeals, lockedIds } = useMemo(() => {
     if (isPro) return { trackedDeals: deals, lockedIds: new Set<string>() }
-    const keep = deals.slice(0, FREE_DEAL_LIMIT)
-    return { trackedDeals: keep, lockedIds: new Set(deals.slice(FREE_DEAL_LIMIT).map((d) => d.id)) }
+    // Same order the server uses to decide which 2 deals stay tracked on Free.
+    const ranked = [...deals].sort(bySort)
+    const keepIds = new Set(ranked.slice(0, FREE_DEAL_LIMIT).map((d) => d.id))
+    return { trackedDeals: deals.filter((d) => keepIds.has(d.id)), lockedIds: new Set(deals.filter((d) => !keepIds.has(d.id)).map((d) => d.id)) }
   }, [deals, isPro])
   const canAddDeal = isPro || deals.length < FREE_DEAL_LIMIT
 
@@ -147,7 +169,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return true
     } catch (e: any) {
       console.error(e)
-      setDeals(prev)
+      setDeals((cur) => restoreById(cur, prev, changed.map((d) => d.id), bySort))
       flash(e.message || 'Could not save')
       return false
     }
@@ -161,7 +183,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await backend.deleteDeal(userId, id)
     } catch (e) {
       console.error(e)
-      setDeals(prev)
+      setDeals((cur) => restoreById(cur, prev, [id], bySort))
       flash('Could not delete')
     }
   }
@@ -194,7 +216,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })
     } catch (e) {
       console.error(e)
-      setChecks_(prev)
+      setChecks_((cur) => restoreKeys(cur, prev, cs.map(checkKey)))
       flash('Could not save, tap again')
     }
   }
@@ -210,7 +232,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!userId) return
     const k = checkKey(c)
     const cur = checks.get(k)
-    const clean = link.trim() || null
+    let clean = link.trim() || null
+    if (clean && !/^https?:\/\//i.test(clean)) clean = /^[\w-]+(\.[\w-]+)+(\/|$)/.test(clean) ? `https://${clean}` : ''
+    if (clean === '') return flash('That doesn\'t look like a link. Paste the post\'s full URL.')
     if ((cur?.link ?? null) === clean) return
     const next = new Map(checks)
     next.set(k, { ...c, link: clean })
@@ -220,7 +244,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       flash(clean ? 'Link saved' : 'Link removed')
     } catch (e) {
       console.error(e)
-      setChecks_(checks)
+      setChecks_((m) => restoreKeys(m, checks, [k]))
       flash('Could not save the link')
     }
   }
@@ -250,7 +274,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await backend.putVideos(userId, v)
     } catch (e) {
       console.error(e)
-      setVideos(prev)
+      setVideos((cur) => restoreById(cur, prev, v.map((x) => x.id), bySort))
       flash('Could not save')
     }
   }
@@ -265,7 +289,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await backend.dropVideos(userId, ids)
     } catch (e) {
       console.error(e)
-      setVideos(prev)
+      setVideos((cur) => restoreById(cur, prev, ids, bySort))
       flash('Could not delete')
     }
   }
@@ -280,7 +304,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await backend.putScripts(userId, list)
     } catch (e: any) {
       console.error(e)
-      setScripts(prev)
+      setScripts((cur) => restoreById(cur, prev, list.map((x) => x.id), bySort))
       flash(e.message || 'Could not save the script')
     }
   }
@@ -294,7 +318,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await backend.dropScripts(userId, ids)
     } catch (e) {
       console.error(e)
-      setScripts(prev)
+      setScripts((cur) => restoreById(cur, prev, ids, bySort))
       flash('Could not delete')
     }
   }
