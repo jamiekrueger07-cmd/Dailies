@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { backend } from '../lib/backend'
-import { AI_ALLOWANCE, addDays, aiAllowance, aiLeft, aiResetsOn, TOPUP_PRICE, TOPUP_SCRIPTS, TRIAL_DAYS, today, weekLabel, weekStart } from '../lib/model'
+import { AI_ALLOWANCE, addDays, aiAllowance, aiLeft, aiResetsOn, parse, TOPUP_PRICE, TOPUP_SCRIPTS, TRIAL_DAYS, today, weekLabel, weekStart } from '../lib/model'
 import { sampleScripts } from '../lib/localScripts'
 import { useApp } from '../state'
 import { IconAi } from '../components/Brand'
@@ -32,7 +32,11 @@ export function AiPage() {
   const active = useMemo(() => trackedDeals.filter((d) => d.status === 'active'), [trackedDeals])
   const dealId = active.some((d) => d.id === params.get('deal')) ? params.get('deal')! : active[0]?.id
   const deal = active.find((d) => d.id === dealId)
-  const week = params.get('week') || weekStart(today())
+  // Only a real date counts, and it's snapped to that week's Monday (Film lists scripts by Monday).
+  const rawWeek = params.get('week') ?? ''
+  const week = /^\d{4}-\d{2}-\d{2}$/.test(rawWeek) && !isNaN(parse(rawWeek).getTime()) ? weekStart(rawWeek) : weekStart(today())
+  // While a brief is being read or drafts are waiting, changing brand or week would throw the drafts away.
+  const [locked, setLocked] = useState(false)
   const [added, setAdded] = useState<{ n: number; brand: string } | null>(null)
   const [buying, setBuying] = useState(false)
   const set = (k: 'deal' | 'week', v: string) => {
@@ -127,7 +131,7 @@ export function AiPage() {
           <div className="ai-target">
             <label>
               Brand
-              <select id="ai-deal" value={dealId} onChange={(e) => set('deal', e.target.value)}>
+              <select id="ai-deal" value={dealId} disabled={locked} onChange={(e) => set('deal', e.target.value)}>
                 {active.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
@@ -138,13 +142,13 @@ export function AiPage() {
             <div className="field">
               <span className="field-label">For the week of</span>
               <div className="nav-dates">
-                <button className="btn icon" onClick={() => set('week', addDays(week, -7))} aria-label="Previous week">
+                <button className="btn icon" disabled={locked} onClick={() => set('week', addDays(week, -7))} aria-label="Previous week">
                   ‹
                 </button>
-                <button className="btn" onClick={() => set('week', weekStart(today()))}>
+                <button className="btn" disabled={locked} onClick={() => set('week', weekStart(today()))}>
                   {weekLabel(week)}
                 </button>
-                <button className="btn icon" onClick={() => set('week', addDays(week, 7))} aria-label="Next week">
+                <button className="btn icon" disabled={locked} onClick={() => set('week', addDays(week, 7))} aria-label="Next week">
                   ›
                 </button>
               </div>
@@ -160,7 +164,7 @@ export function AiPage() {
               </Link>
             </div>
           )}
-          {deal && <AiWriter key={deal.id + week} deal={deal} week={week} onAdded={(n) => setAdded({ n, brand: deal.name })} />}
+          {deal && <AiWriter key={deal.id + week} deal={deal} week={week} onLockChange={setLocked} onAdded={(n) => setAdded({ n, brand: deal.name })} />}
         </section>
       )}
 
