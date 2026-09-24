@@ -753,3 +753,21 @@ button.vid-label:hover { color: var(--ink); }
 .demo.shot img { display: block; width: 100%; height: auto; }
 .ex-shot { border-radius: 12px; overflow: hidden; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow-lift); }
 .ex-shot img { display: block; width: 100%; height: auto; }
+
+/* ---------- v14: feedback form ---------- */
+.fb-sheet .chips { margin-top: 16px; }
+.fb-label { display: block; margin-top: 12px; }
+.fb-label textarea { width: 100%; resize: vertical; min-height: 120px; font-size: 15px; }
+.fb-count { margin-top: 4px; text-align: right; }
+.fb-sheet .btn.block { margin-top: 14px; }
+.side-feedback { display: none; }
+@media (min-width: 960px) {
+  .side-feedback {
+    display: block; margin-top: auto; padding: 10px 12px; border: 0; border-radius: 6px; background: none;
+    font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); text-align: left; cursor: pointer;
+  }
+  .side-feedback:hover { background: var(--surface-2); color: var(--ink); }
+  .side-feedback + .side-account { margin-top: 0; }
+}
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (min-width: 960px) { .side-feedback { margin-bottom: -14px; } }
