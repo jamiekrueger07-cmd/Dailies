@@ -309,9 +309,23 @@ Deno.serve(async (req) => {
       const { error } = await admin.rpc('record_ai_run', { uid: user.id, run_mode: mode, n, run_model: model, in_tok: inTok, out_tok: outTok, cost: costUsd(model, inTok, outTok) })
       if (error) console.error('record_ai_run failed', error)
     }
+    // Take the AI scripts BEFORE calling the AI, so several requests at once can't spend more than someone has.
+    const reserve = async (mode: string, n: number): Promise<number | null> => {
+      const { data, error } = await admin.rpc('reserve_ai', { uid: user.id, run_mode: mode, n })
+      if (error) throw error
+      return data ?? null
+    }
+    // Keep what was delivered, give back the rest (e.g. when the AI call fails).
+    const finish = async (rid: number, n: number, model: string | null, inTok = 0, outTok = 0) => {
+      const { error } = await admin.rpc('finish_ai_run', { rid, n, run_model: model, in_tok: inTok, out_tok: outTok, cost: model ? costUsd(model, inTok, outTok) : 0 })
+      if (error) console.error('finish_ai_run failed', error)
+    }
 
     // ---- Brief, step 1: find the videos. Free (doesn't use AI scripts). ----
     if (body.mode === 'outline') {
+      // It's free, but it still costs us: cap it at 15 briefs an hour per person.
+      const { count: recent } = await admin.from('ai_runs').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('mode', 'outline').gte('created_at', new Date(Date.now() - 3600_000).toISOString())
+      if ((recent ?? 0) >= 15) return json({ error: "You've read a lot of briefs this hour. Try again in a little while." }, 429)
       let text: string = typeof body.text === 'string' ? body.text : ''
       if (body.file?.type === 'application/pdf' && body.file.data) {
         if (body.file.data.length > 11_000_000) return json({ error: 'That file is too big. Try under 8 MB.' }, 413)
@@ -370,21 +384,30 @@ Deno.serve(async (req) => {
           'Turn this video into one script card and save it.',
         ].join('\n\n'),
       })
-      // 4000 keeps two cards at a time under a new account's per-minute limit; a very long script gets one roomier try.
-      let res = await claude(cardModel, CARD_PROMPT(brand), content, TOOL, 4000)
-      if (res.truncated) res = await claude(cardModel, CARD_PROMPT(brand), content, TOOL, 7500)
-      const { input, inTok, outTok, truncated } = res
-      const scripts = cleanScripts(input.scripts).slice(0, 1)
-      if (!scripts.length) return json({ error: truncated ? 'That script was too long to format in one go.' : "Couldn't turn that part into a script." }, 422)
-      await log('card', 1, cardModel, inTok, outTok)
-      return json({ scripts })
+      const rid = await reserve('card', 1)
+      if (rid == null) return json({ error: 'AI_LIMIT' }, 429)
+      try {
+        // 4000 keeps two cards at a time under a new account's per-minute limit; a very long script gets one roomier try.
+        let res = await claude(cardModel, CARD_PROMPT(brand), content, TOOL, 4000)
+        if (res.truncated) res = await claude(cardModel, CARD_PROMPT(brand), content, TOOL, 7500)
+        const { input, inTok, outTok, truncated } = res
+        const scripts = cleanScripts(input.scripts).slice(0, 1)
+        await finish(rid, scripts.length, cardModel, inTok, outTok)
+        if (!scripts.length) return json({ error: truncated ? 'That script was too long to format in one go.' : "Couldn't turn that part into a script." }, 422)
+        return json({ scripts })
+      } catch (e) {
+        await finish(rid, 0, null)
+        throw e
+      }
     }
 
     // ---- Older one-shot paths: whole brief at once (scanned PDFs), or writing new scripts ----
     let model: string
     let system: string
     let content: unknown[]
+    let hold: number // AI scripts to reserve up front
     if (body.mode === 'split') {
+      hold = Math.min(left, 30)
       model = splitModel
       system = SPLIT_PROMPT(brand)
       if (body.file?.type === 'application/pdf' && body.file.data) {
@@ -402,6 +425,7 @@ Deno.serve(async (req) => {
       const b = body.brief ?? {}
       const count = Math.min(14, Math.max(1, Number(b.count) || 3))
       if (count > left) return json({ error: `You have ${left} AI script${left === 1 ? '' : 's'} left. Lower the number or get more.` }, 429)
+      hold = count
       model = Deno.env.get('ANTHROPIC_MODEL_WRITE') ?? 'claude-sonnet-5'
       system = WRITE_PROMPT
       content = [
@@ -423,17 +447,24 @@ Deno.serve(async (req) => {
       ]
     } else return json({ error: 'Unknown request' }, 400)
 
-    const { input, inTok, outTok } = await claude(model, system, content, TOOL, 8000)
-    let scripts = cleanScripts(input.scripts)
+    const rid = await reserve(body.mode, hold)
+    if (rid == null) return json({ error: 'AI_LIMIT' }, 429)
+    try {
+      const { input, inTok, outTok } = await claude(model, system, content, TOOL, 8000)
+      let scripts = cleanScripts(input.scripts)
 
-    // A brief can hold more scripts than someone has left: give them what they have room for.
-    let note: string | undefined
-    if (scripts.length > left) {
-      note = `This brief had ${scripts.length} scripts. You had ${left} AI script${left === 1 ? '' : 's'} left, so here are the first ${left}.`
-      scripts = scripts.slice(0, left)
+      // A brief can hold more scripts than someone has left: give them what they have room for.
+      let note: string | undefined
+      if (scripts.length > hold) {
+        note = `This brief had ${scripts.length} scripts. You had ${hold} AI script${hold === 1 ? '' : 's'} left, so here are the first ${hold}.`
+        scripts = scripts.slice(0, hold)
+      }
+      await finish(rid, scripts.length, model, inTok, outTok)
+      return json({ scripts, note })
+    } catch (e) {
+      await finish(rid, 0, null)
+      throw e
     }
-    await log(body.mode, scripts.length, model, inTok, outTok)
-    return json({ scripts, note })
   } catch (e) {
     if (e instanceof AiError) return json({ error: e.message }, e.status)
     console.error(e)
