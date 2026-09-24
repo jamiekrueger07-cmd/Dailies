@@ -11,7 +11,7 @@ export function DealsPage() {
 
   const add = () => {
     if (!canAddDeal) return openUpgrade('Add more brand deals')
-    setEditing(newDeal(deals.length))
+    setEditing({ ...newDeal(deals.length), sortOrder: deals.reduce((m, d) => Math.max(m, d.sortOrder + 1), 0) })
   }
   const save = async () => {
     if (!editing) return
