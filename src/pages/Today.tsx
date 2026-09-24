@@ -16,6 +16,7 @@ import {
   type Row,
 } from '../lib/model'
 import { useApp } from '../state'
+import { useTitle } from '../lib/title'
 
 export function Tick() {
   return (
@@ -129,7 +130,46 @@ function VideoRow({ row }: { row: Row }) {
   )
 }
 
+const TIPS_KEY = 'dailies:tipsSeen'
+/** A one-time "how Today works" card for new accounts. */
+function FirstDayTips() {
+  const [show, setShow] = useState(() => {
+    try {
+      return !localStorage.getItem(TIPS_KEY)
+    } catch {
+      return false
+    }
+  })
+  if (!show) return null
+  const close = () => {
+    try {
+      localStorage.setItem(TIPS_KEY, '1')
+    } catch {
+      /* fine */
+    }
+    setShow(false)
+  }
+  return (
+    <div className="card tip-card" role="note">
+      <button className="sheet-x" onClick={close} aria-label="Got it, hide tips">
+        ×
+      </button>
+      <b>How Today works</b>
+      <ul className="small">
+        <li>Each row is one video you owe today. Tap a platform (TT, IG…) once that post is live.</li>
+        <li>Posted the same video everywhere? Tap ALL.</li>
+        <li>Tap the “Vid” label to paste the post links. They show up on the proof-of-posting report you send brands.</li>
+        <li>Anything you miss lands under Missed, so nothing slips.</li>
+      </ul>
+      <button className="btn small" onClick={close}>
+        Got it
+      </button>
+    </div>
+  )
+}
+
 export function TodayPage() {
+  useTitle('Today')
   const { trackedDeals: deals, checks, videos } = useApp()
   const [date, setDate] = useState(today())
   // If the app stays open past midnight, roll over to the new day (and refresh missed posts and the streak).
@@ -200,6 +240,7 @@ export function TodayPage() {
       </header>
 
       <LockedNote />
+      {deals.length > 0 && <FirstDayTips />}
 
       {deals.length === 0 && (
         <div className="empty card">

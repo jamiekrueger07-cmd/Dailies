@@ -3,8 +3,10 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { backend } from '../lib/backend'
 import { useApp } from '../state'
 import { Wordmark } from '../components/Brand'
+import { useTitle } from '../lib/title'
 
 export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
+  useTitle(mode === 'in' ? 'Log in' : 'Sign up')
   const { refresh } = useApp()
   const nav = useNavigate()
   const [params] = useSearchParams()
@@ -134,6 +136,7 @@ export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
 
 // Where the "reset your password" email lands. The link logs them in, then they pick a new password here.
 export function ResetPasswordPage() {
+  useTitle('New password')
   const { userId, loading, flash } = useApp()
   const nav = useNavigate()
   const [password, setPassword] = useState('')

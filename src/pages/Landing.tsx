@@ -4,6 +4,7 @@ import { AI_ALLOWANCE, FREE_DEAL_LIMIT, PRO_PRICE, PRO_PRICE_YEARLY, TOPUP_PRICE
 import { useApp } from '../state'
 import { IntervalToggle, PLUS_FEATURES, PriceLine, PRO_FEATURES, ProBadge } from '../components/Upgrade'
 import { Wordmark } from '../components/Brand'
+import { PlanTable } from '../components/PlanTable'
 import shotToday from '../assets/shot-today.webp'
 import shotScript from '../assets/shot-script.webp'
 
@@ -344,6 +345,7 @@ export function LandingPage() {
             <p className="muted tiny center">Trial includes {TRIAL_AI_SCRIPTS} AI scripts. Then {tierPriceText('plus', iv)}. Cancel anytime.</p>
           </div>
         </div>
+        <PlanTable interval={iv} />
         <p className="muted small center topup-line">
           Need more AI scripts one month? Grab {TOPUP_SCRIPTS} more for ${TOPUP_PRICE} anytime. They never expire.
         </p>

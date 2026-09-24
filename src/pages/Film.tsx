@@ -4,6 +4,7 @@ import { addDays, nextStatus, statusLabel, today, uid, videosInWeek, weekLabel, 
 import { useApp } from '../state'
 import { LockedNote } from './Today'
 import { ScriptsView } from './Scripts'
+import { useTitle } from '../lib/title'
 
 function VideoLine({
   video,
@@ -115,6 +116,7 @@ function VideoLine({
 }
 
 export function FilmPage() {
+  useTitle('Film')
   const { trackedDeals, videos, putVideos, dropVideos, scripts, putScripts } = useApp()
   const [week, setWeek] = useState(weekStart(today()))
   const [open, setOpen] = useState<string | null>(null)

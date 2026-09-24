@@ -3,8 +3,10 @@ import { DealForm } from '../components/DealForm'
 import { ProBadge } from '../components/Upgrade'
 import { dealProblem, FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
 import { useApp } from '../state'
+import { useTitle } from '../lib/title'
 
 export function DealsPage() {
+  useTitle('Deals')
   const { deals, saveDeals, removeDeal, canAddDeal, lockedIds, isPro, openUpgrade, flash } = useApp()
   const [editing, setEditing] = useState<Deal | null>(null)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)

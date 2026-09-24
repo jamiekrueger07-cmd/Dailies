@@ -3,9 +3,11 @@ import { Link, useParams } from 'react-router-dom'
 import { backend } from '../lib/backend'
 import { checkKey, dailyLines, monthLabel, PLATFORMS, shortDate, type SharedReport } from '../lib/model'
 import { Wordmark } from '../components/Brand'
+import { useTitle } from '../lib/title'
 
 /** Public page a brand opens from the creator's share link. Read-only, no login. */
 export function SharedReportPage() {
+  useTitle('Proof of posting')
   const { token = '' } = useParams()
   const [data, setData] = useState<SharedReport | null | undefined>(undefined)
 

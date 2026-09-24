@@ -6,6 +6,7 @@ import { sampleScripts } from '../lib/localScripts'
 import { useApp } from '../state'
 import { IconAi } from '../components/Brand'
 import { AiWriter, StepLine } from './Scripts'
+import { useTitle } from '../lib/title'
 
 const EXAMPLE = sampleScripts({
   brand: 'Luma Skin',
@@ -27,6 +28,7 @@ function showScriptsInFilm() {
 }
 
 export function AiPage() {
+  useTitle('AI scripts')
   const { trackedDeals, isPro, profile, openUpgrade, refreshProfile, flash } = useApp()
   const [params, setParams] = useSearchParams()
   const active = useMemo(() => trackedDeals.filter((d) => d.status === 'active'), [trackedDeals])

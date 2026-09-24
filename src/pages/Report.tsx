@@ -3,6 +3,7 @@ import { backend } from '../lib/backend'
 import { addDays, monthLabel, monthReport, today, type Deal } from '../lib/model'
 import { useApp } from '../state'
 import { ProBadge } from '../components/Upgrade'
+import { useTitle } from '../lib/title'
 
 const REPORT_FEATURES = [
   'A share link for each brand, with every live post link',
@@ -89,6 +90,7 @@ function ShareBox({ deal, month, onClose }: { deal: Deal; month: string; onClose
 }
 
 export function ReportPage() {
+  useTitle('Proof of posting')
   const { isPro, trackedDeals, checks, openUpgrade, flash } = useApp()
   const [month, setMonth] = useState(today().slice(0, 7))
   const [sharing, setSharing] = useState<string | null>(null)

@@ -11,6 +11,7 @@ import {
   TRIAL_AI_SCRIPTS,
   TRIAL_DAYS,
 } from '../lib/model'
+import { useTitle } from '../lib/title'
 
 // Plain-language terms. Worth a quick review by a lawyer before taking real payments.
 const CONTACT = 'support@dailies.digital'
@@ -21,6 +22,7 @@ function Mail() {
 }
 
 export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
+  useTitle(kind === 'terms' ? 'Terms of Service' : 'Privacy Policy')
   return (
     <div className="page legal">
       <Link to="/" className="brand small-brand">
@@ -92,7 +94,7 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
 
           <h3>Ending your account</h3>
           <p>
-            You can stop using Dailies anytime and ask us to delete your account at <Mail />. We may suspend accounts that break these terms or
+            You can stop using Dailies anytime and delete your account from your Account page (or email <Mail />). We may suspend accounts that break these terms or
             put the service or other people at risk.
           </p>
 
@@ -150,8 +152,8 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
 
           <h3>Keeping and deleting your data</h3>
           <p>
-            We keep your data while your account is open. Email <Mail /> and we'll delete your account and everything in it. Stripe may keep
-            payment records it's required to keep by law.
+            We keep your data while your account is open. You can download a copy, or delete your account and everything in it, from your
+            Account page (or email <Mail />). Stripe may keep payment records it's required to keep by law.
           </p>
 
           <h3>Children</h3>

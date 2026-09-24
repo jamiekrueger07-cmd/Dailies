@@ -6,6 +6,8 @@ import { useApp } from '../state'
 import { PENDING_TIER_KEY, PRO_FEATURES } from '../components/Upgrade'
 import { PENDING_KEY } from './Onboarding'
 import { FeedbackButton } from '../components/Feedback'
+import { AccountSettings } from '../components/AccountSettings'
+import { useTitle } from '../lib/title'
 
 /** Lives outside the page tree so it survives the app switching from onboarding to the main tabs. */
 export function CheckoutWatcher() {
@@ -88,6 +90,7 @@ export function CheckoutWatcher() {
 }
 
 export function AccountPage() {
+  useTitle('Account')
   const { email, isPro, profile, openUpgrade, signOut, flash, saveSettings, refreshProfile } = useApp()
   const [buying, setBuying] = useState(false)
   const left = aiLeft(profile)
@@ -265,6 +268,8 @@ export function AccountPage() {
           />
         </label>
       </section>
+
+      <AccountSettings />
 
       <section className="card edit-card">
         <h2 className="section-title">Feedback</h2>

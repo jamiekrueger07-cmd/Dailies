@@ -1,37 +1,89 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Wordmark } from '../components/Brand'
-import { DealForm } from '../components/DealForm'
-import { dealProblem, FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, WEEKDAYS, type Deal } from '../lib/model'
+import { dealProblem, FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
 import { useApp } from '../state'
+import { useTitle } from '../lib/title'
 
 export const PENDING_KEY = 'dailies:pendingDeals'
 
+/** One brand in onboarding: just the name, how many videos, and where they go. Everything else lives in Deals. */
+function QuickDeal({ deal, index, onChange, onRemove }: { deal: Deal; index: number; onChange: (d: Deal) => void; onRemove?: () => void }) {
+  const up = (p: Partial<Deal>) => onChange({ ...deal, ...p })
+  const n = deal.quotaMode === 'week' ? deal.videosPerWeek : deal.videosPerDay
+  const setN = (v: number) =>
+    deal.quotaMode === 'week' ? up({ videosPerWeek: Math.min(140, Math.max(1, Math.round(v) || 1)) }) : up({ videosPerDay: Math.min(20, Math.max(1, Math.round(v) || 1)) })
+  return (
+    <div className="deal-form quick-deal" style={{ '--brand': deal.color } as CSSProperties}>
+      <div className="quick-head">
+        <span className="deal-form-title">Brand {index + 1}</span>
+        {onRemove && (
+          <button type="button" className="btn link small" onClick={onRemove}>
+            Remove
+          </button>
+        )}
+      </div>
+      <label>
+        Brand name
+        <input value={deal.name} onChange={(e) => up({ name: e.target.value })} placeholder="e.g. Luma Skin" autoFocus={index > 0} />
+      </label>
+      <div className="quick-quota">
+        <label>
+          Videos
+          <input type="number" min={1} max={deal.quotaMode === 'week' ? 140 : 20} value={n} onChange={(e) => setN(Number(e.target.value))} />
+        </label>
+        <div className="chips" role="radiogroup" aria-label="How often">
+          <button type="button" role="radio" aria-checked={deal.quotaMode === 'day'} className={'chip' + (deal.quotaMode === 'day' ? ' on' : '')} onClick={() => up({ quotaMode: 'day' })}>
+            a day
+          </button>
+          <button type="button" role="radio" aria-checked={deal.quotaMode === 'week'} className={'chip' + (deal.quotaMode === 'week' ? ' on' : '')} onClick={() => up({ quotaMode: 'week' })}>
+            a week
+          </button>
+        </div>
+      </div>
+      <div className="field">
+        <span className="field-label">Where does each video get posted?</span>
+        <div className="chips">
+          {PLATFORMS.map((p) => (
+            <button
+              type="button"
+              key={p.id}
+              aria-pressed={deal.platforms.includes(p.id)}
+              className={'chip' + (deal.platforms.includes(p.id) ? ' on' : '')}
+              onClick={() => up({ platforms: deal.platforms.includes(p.id) ? deal.platforms.filter((x) => x !== p.id) : [...deal.platforms, p.id] })}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const blank = (i: number): Deal => ({ ...newDeal(i), platforms: [] })
+// A card nobody touched is skipped instead of turning into "Brand 2".
+const isEmpty = (d: Deal) => !d.name.trim() && d.platforms.length === 0
+
 export function OnboardingPage() {
+  useTitle('Set up')
   const { saveDeals, isPro, openUpgrade } = useApp()
   const nav = useNavigate()
-  const [step, setStep] = useState(0)
-  const [count, setCount] = useState(2)
-  const [deals, setDeals] = useState<Deal[]>([])
+  const [step, setStep] = useState<1 | 2>(1)
+  const [deals, setDeals] = useState<Deal[]>(() => [blank(0)])
   const [busy, setBusy] = useState(false)
 
-  // Keep what they already typed if they go Back and press Next again.
-  const start = () => {
-    setDeals((cur) => (cur.length === count ? cur : [...cur.slice(0, count), ...Array.from({ length: Math.max(0, count - cur.length) }, (_, i) => newDeal(cur.length + i))]))
-    setStep(1)
-  }
-  const named = (list: Deal[]) => list.map((d, i) => ({ ...d, name: d.name.trim() || `Brand ${i + 1}` }))
-  const problem = named(deals).map(dealProblem).find(Boolean) ?? null
-  const clean = (list: Deal[]) => list.map((d, i) => ({ ...d, name: d.name.trim() || `Brand ${i + 1}`, sortOrder: i }))
-  const tot = deals.reduce(
+  const filled = deals.filter((d) => !isEmpty(d))
+  const problem = !filled.length ? 'Add at least one brand.' : (filled.map((d) => (d.name.trim() ? dealProblem(d) : 'Give each brand a name.')).find(Boolean) ?? null)
+  const clean = (list: Deal[]) => list.map((d, i) => ({ ...d, name: d.name.trim(), sortOrder: i }))
+  const tot = filled.reduce(
     (a, d) => ({
       videosWeek: a.videosWeek + videosPerWeek(d),
       postsWeek: a.postsWeek + videosPerWeek(d) * d.platforms.length,
-      weekly: a.weekly + (d.ratePerVideo ?? 0) * videosPerWeek(d),
     }),
-    { videosWeek: 0, postsWeek: 0, weekly: 0 },
+    { videosWeek: 0, postsWeek: 0 },
   )
-  const overFree = !isPro && deals.length > FREE_DEAL_LIMIT
+  const overFree = !isPro && filled.length > FREE_DEAL_LIMIT
 
   const finish = async (list: Deal[]) => {
     setBusy(true)
@@ -41,11 +93,11 @@ export function OnboardingPage() {
   }
   const goPro = () => {
     try {
-      localStorage.setItem(PENDING_KEY, JSON.stringify(clean(deals)))
+      localStorage.setItem(PENDING_KEY, JSON.stringify(clean(filled)))
     } catch {
       /* if storage is blocked they can re-add deals after upgrading */
     }
-    openUpgrade(`Track all ${deals.length} brands`)
+    openUpgrade(`Track all ${filled.length} brands`)
   }
 
   return (
@@ -54,38 +106,31 @@ export function OnboardingPage() {
         <Link to="/" className="brand onboard-brand" aria-label="Dailies homepage">
           <Wordmark />
         </Link>
-        {step === 0 && (
-          <>
-            <h1>Let's build your tracker</h1>
-            <p className="muted">Answer a few questions and your daily checklist builds itself. You can change all of this later.</p>
-            <label>
-              How many brand deals are you posting for right now?
-              <input type="number" min={1} max={8} value={count} onChange={(e) => setCount(Math.min(8, Math.max(1, Number(e.target.value) || 1)))} />
-            </label>
-            <button className="btn primary block" onClick={start}>
-              Next
-            </button>
-          </>
-        )}
+        <div className="onboard-step muted tiny">Step {step} of 2</div>
         {step === 1 && (
           <>
-            <h1>Your deals</h1>
-            <p className="muted">For each brand: how many videos a day, and where they get posted.</p>
+            <h1>Which brands are you posting for?</h1>
+            <p className="muted">Just the basics. Rates, dates and contacts can wait until later, in Deals.</p>
             {deals.map((d, i) => (
-              <DealForm key={d.id} deal={d} index={i} onChange={(x) => setDeals(deals.map((y) => (y.id === x.id ? x : y)))} />
+              <QuickDeal
+                key={d.id}
+                deal={d}
+                index={i}
+                onChange={(x) => setDeals(deals.map((y) => (y.id === x.id ? x : y)))}
+                onRemove={deals.length > 1 ? () => setDeals(deals.filter((y) => y.id !== d.id)) : undefined}
+              />
             ))}
-            <button type="button" className="btn link" onClick={() => setDeals([...deals, newDeal(deals.length)])}>
-              + Add another brand
-            </button>
-            <div className="onboard-actions">
-              <button className="btn" onClick={() => setStep(0)}>
-                Back
+            {deals.length < 12 && (
+              <button type="button" className="btn block" onClick={() => setDeals([...deals, blank(deals.length)])}>
+                + Add another brand
               </button>
+            )}
+            <div className="onboard-actions">
               <button className="btn primary" onClick={() => setStep(2)} disabled={!!problem}>
                 Next
               </button>
             </div>
-            {problem && <p className="muted small">{problem}</p>}
+            {problem && filled.length > 0 && <p className="muted small">{problem}</p>}
           </>
         )}
         {step === 2 && (
@@ -104,35 +149,27 @@ export function OnboardingPage() {
                 <div className="stat-n">{Math.round((tot.postsWeek / 7) * 10) / 10}</div>
                 <div className="stat-l">posts a day</div>
               </div>
-              {tot.weekly > 0 && (
-                <div className="stat">
-                  <div className="stat-n">${tot.weekly.toLocaleString()}</div>
-                  <div className="stat-l">a week if you hit it</div>
-                </div>
-              )}
             </div>
             <ul className="summary-list">
-              {named(deals).map((d) => (
+              {filled.map((d) => (
                 <li key={d.id}>
-                  <span className="dot" style={{ background: d.color }} /> <b>{d.name}</b>: {videosPerWeek(d)} a week on{' '}
-                  {d.platforms.map((p) => PLATFORMS.find((x) => x.id === p)!.short).join(', ')}
-                  {d.needsApproval && <> · approval needed</>}
-                  {d.filmDay != null && <> · film {WEEKDAYS[d.filmDay]}s</>}
+                  <span className="dot" style={{ background: d.color }} /> <b>{d.name.trim()}</b>: {videosPerWeek(d)} a week on{' '}
+                  {d.platforms.map((p) => PLATFORMS.find((x) => x.id === p)!.label).join(', ')}
                 </li>
               ))}
             </ul>
-            <p className="muted">Every morning your Today list will have exactly these rows waiting. Check a box when you post.</p>
+            <p className="muted">Every morning, Today lists exactly what's due. Tap a platform when the post is live.</p>
 
             {overFree ? (
               <div className="upsell">
                 <p className="small">
-                  <b>The Free plan tracks {FREE_DEAL_LIMIT} brands.</b> You're juggling {deals.length}, which is exactly what Pro is for.
+                  <b>The Free plan tracks {FREE_DEAL_LIMIT} brands.</b> You're juggling {filled.length}, which is exactly what Pro is for.
                 </p>
                 <button className="btn primary block lg" onClick={goPro}>
-                  Track all {deals.length} with Pro, free for 7 days
+                  Track all {filled.length} with Pro, free for 7 days
                 </button>
-                <button className="btn block" onClick={() => finish(deals.slice(0, FREE_DEAL_LIMIT))} disabled={busy}>
-                  Start free with {deals.slice(0, FREE_DEAL_LIMIT).map((d, i) => d.name.trim() || `Brand ${i + 1}`).join(' and ')} only
+                <button className="btn block" onClick={() => finish(filled.slice(0, FREE_DEAL_LIMIT))} disabled={busy}>
+                  Start free with {filled.slice(0, FREE_DEAL_LIMIT).map((d) => d.name.trim()).join(' and ')} only
                 </button>
                 <button className="btn link block" onClick={() => setStep(1)}>
                   Back
@@ -143,7 +180,7 @@ export function OnboardingPage() {
                 <button className="btn" onClick={() => setStep(1)}>
                   Back
                 </button>
-                <button className="btn primary" onClick={() => finish(deals)} disabled={busy}>
+                <button className="btn primary" onClick={() => finish(filled)} disabled={busy}>
                   Build my tracker
                 </button>
               </div>
