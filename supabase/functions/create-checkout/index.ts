@@ -49,6 +49,11 @@ Deno.serve(async (req) => {
     const paid = profile?.plan === 'pro' || profile?.plan === 'plus'
 
     let customer = profile?.stripe_customer_id as string | undefined
+    // A customer deleted in Stripe would block billing forever, so make a fresh one.
+    if (customer) {
+      const c = await stripe.customers.retrieve(customer).catch(() => null)
+      if (!c || (c as Stripe.DeletedCustomer).deleted) customer = undefined
+    }
     if (!customer) {
       const c = await stripe.customers.create({ email: user.email ?? undefined, metadata: { user_id: user.id } })
       customer = c.id
@@ -64,6 +69,7 @@ Deno.serve(async (req) => {
         client_reference_id: user.id,
         line_items: [{ price: Deno.env.get('STRIPE_PRICE_TOPUP')!, quantity: 1 }],
         metadata: { kind: 'topup', user_id: user.id, scripts: String(TOPUP_SCRIPTS) },
+        expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
         success_url: `${site}/app/account?checkout=topup`,
         cancel_url: `${site}/app/account`,
       })
@@ -79,11 +85,15 @@ Deno.serve(async (req) => {
       const iv = body.interval === 'year' || body.interval === 'month' ? body.interval : current
       const price = priceFor(tier, iv)
       if (item.price.id !== price) {
+        // Going down from Pro Plus to Pro gives no credit back; otherwise someone could hop up, use Plus's
+        // AI scripts, and hop back down for a refund every month.
+        const plusPrices = new Set([Deno.env.get('STRIPE_PRICE_PLUS'), Deno.env.get('STRIPE_PRICE_PLUS_YEARLY')])
+        const downgrade = plusPrices.has(item.price.id) && tier === 'pro'
         try {
           // Charge the difference now (not at renewal), and only switch if that payment goes through.
           await stripe.subscriptions.update(sub.id, {
             items: [{ id: item.id, price }],
-            proration_behavior: 'always_invoice',
+            proration_behavior: downgrade ? 'none' : 'always_invoice',
             payment_behavior: 'error_if_incomplete',
             metadata: { ...sub.metadata, user_id: user.id },
           })
@@ -97,6 +107,10 @@ Deno.serve(async (req) => {
     }
 
     // ---- new subscription ----
+    // Don't start a second subscription (e.g. from an old checkout tab) if one is already running.
+    const existing = await stripe.subscriptions.list({ customer, status: 'all', limit: 10 })
+    if (existing.data.some((x) => ['active', 'trialing', 'past_due'].includes(x.status)))
+      return json({ error: 'You already have a plan. Refresh the page to see it.' }, 409)
     const trialDays = Number(Deno.env.get('TRIAL_DAYS') ?? 7)
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -108,12 +122,13 @@ Deno.serve(async (req) => {
         ...(profile?.trial_used || trialDays <= 0 ? {} : { trial_period_days: trialDays }),
       },
       allow_promotion_codes: true,
+      expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // old checkout tabs can't start a second trial later
       success_url: `${site}/app/account?checkout=success`,
       cancel_url: `${site}/app/account`,
     })
     return json({ url: session.url })
   } catch (e) {
     console.error(e)
-    return json({ error: (e as Error).message }, 500)
+    return json({ error: "Billing hit a snag. Try again in a minute, or email support@dailies.digital if it keeps happening." }, 500)
   }
 })
