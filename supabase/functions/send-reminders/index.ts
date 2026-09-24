@@ -73,14 +73,22 @@ Deno.serve(async (req) => {
   if (req.headers.get('x-cron-secret') !== Deno.env.get('CRON_SECRET')) return new Response('Forbidden', { status: 403 })
   const site = Deno.env.get('SITE_URL')!.replace(/\/+$/, '')
 
-  const { data: users, error } = await admin
-    .from('profiles')
-    .select('id, email, plan, reminder_hour, timezone, last_reminder_on')
-    .eq('reminder_email', true)
-  if (error) return new Response(error.message, { status: 500 })
+  // Page through everyone with reminders on (a single query stops at 1,000 rows).
+  const users: { id: string; email: string | null; plan: string; reminder_hour: number; timezone: string | null; last_reminder_on: string | null }[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin
+      .from('profiles')
+      .select('id, email, plan, reminder_hour, timezone, last_reminder_on')
+      .eq('reminder_email', true)
+      .order('id')
+      .range(from, from + 999)
+    if (error) return new Response(error.message, { status: 500 })
+    users.push(...(data ?? []))
+    if (!data || data.length < 1000) break
+  }
 
   let sent = 0
-  for (const u of users ?? []) {
+  for (const u of users) {
     const now = localNow(u.timezone || 'America/Los_Angeles')
     if (now.hour < u.reminder_hour || u.last_reminder_on === now.date || !u.email) continue
 
@@ -100,9 +108,14 @@ Deno.serve(async (req) => {
       })
       .filter((l) => l.left > 0)
 
-    // mark first so a slow email provider never causes a double send
-    await admin.from('profiles').update({ last_reminder_on: now.date }).eq('id', u.id)
-    if (!lines.length) continue
+    // Claim today's reminder in one step, so two overlapping runs can't both send it.
+    const { data: claimed } = await admin
+      .from('profiles')
+      .update({ last_reminder_on: now.date })
+      .eq('id', u.id)
+      .or(`last_reminder_on.is.null,last_reminder_on.neq.${now.date}`)
+      .select('id')
+    if (!claimed?.length || !lines.length) continue
 
     const msg = email(lines, site)
     const r = await fetch('https://api.resend.com/emails', {
@@ -113,5 +126,5 @@ Deno.serve(async (req) => {
     if (r.ok) sent++
     else console.error('resend failed', u.id, await r.text())
   }
-  return new Response(JSON.stringify({ checked: users?.length ?? 0, sent }), { headers: { 'Content-Type': 'application/json' } })
+  return new Response(JSON.stringify({ checked: users.length, sent }), { headers: { 'Content-Type': 'application/json' } })
 })
