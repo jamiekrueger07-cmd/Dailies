@@ -53,6 +53,75 @@ function DemoCard() {
   )
 }
 
+function HeroVisual() {
+  return (
+    <div className="hero-visual">
+      <div className="hv-chip hv-a" aria-hidden="true">
+        <span className="hv-k">Brief read</span>
+        <b>12 script cards ready</b>
+      </div>
+      <DemoCard />
+      <div className="hv-chip hv-b" aria-hidden="true">
+        <span className="hv-k">Proof of posting</span>
+        <b>100% of quota · Sept</b>
+      </div>
+    </div>
+  )
+}
+
+// A made-up brand, built with the same pieces the app uses to show a script.
+function ExampleCard() {
+  const steps: [string, string, string][] = [
+    ['beat', '', 'Set the shot'],
+    ['show', 'Show', 'Bathroom counter, morning light, phone propped at eye level'],
+    ['text', 'On-screen', 'POV: your skincare shelf finally makes sense'],
+    ['beat', '', 'What you say'],
+    ['say', 'Say', '\u201cI used to have eleven products and no idea what order they went in.\u201d'],
+    ['show', 'Show', 'Slide the old bottles out of frame'],
+    ['say', 'Say', '\u201cNow it\u2019s three steps. Cleanse, the Luma serum, SPF. That\u2019s it.\u201d'],
+    ['show', 'Show', 'Close-up: two pumps of serum, pat it in'],
+    ['beat', '', 'End'],
+    ['say', 'Say', '\u201cThirty seconds and I\u2019m out the door.\u201d'],
+    ['text', 'On-screen', 'Link in bio for 20% off'],
+  ]
+  return (
+    <figure className="ex">
+      <div className="ex-card">
+        <div className="ex-top">
+          <span className="ex-brand">Luma Skin</span>
+          <span className="scr-meta muted tiny">Week 1 · Script 2 · 25–35 sec</span>
+        </div>
+        <div className="ex-title">The 7am shelf reset</div>
+        <div className="scr-hookbox">
+          <span className="st-k">Hook text</span>
+          POV: your skincare shelf finally makes sense
+        </div>
+        <div className="scr-steps">
+          {steps.map(([k, label, t], i) =>
+            k === 'beat' ? (
+              <div key={i} className="st-beat">{t}</div>
+            ) : (
+              <div key={i} className={`st st-${k}`}>
+                <span className="st-k">{label}</span>
+                <span className="st-t">{t}</span>
+              </div>
+            ),
+          )}
+        </div>
+        <div className="scr-caption">
+          <span className="st-k">Caption</span>
+          <p>three steps and done. that&apos;s the whole routine now #lumaskin #skincareroutine #ad</p>
+          <span className="st-k">Notes</span>
+          <p className="ex-notes">
+            {'\u2022 The format: POV hook on screen, quick shelf before and after, then talk to camera.\n\u2022 Inspo: clean counter, soft morning light, one product in hand.\n\u2022 Brand rules: say \u201cserum,\u201d not \u201ctreatment.\u201d Tag @lumaskin and use #ad.'}
+          </p>
+        </div>
+      </div>
+      <figcaption className="muted tiny">Example card. Luma Skin is a made-up brand.</figcaption>
+    </figure>
+  )
+}
+
 // Scroll in-page without touching the URL (the preview build uses #/ routes).
 const jump = (id: string) => (e: { preventDefault(): void }) => {
   e.preventDefault()
@@ -60,15 +129,17 @@ const jump = (id: string) => (e: { preventDefault(): void }) => {
 }
 
 const FAQ = [
-  ['Who is Dailies for?', 'UGC creators and influencers posting for more than one brand at a time, especially deals with daily quotas across TikTok, Instagram, YouTube, Facebook and Snapchat.'],
+  ['Who is Dailies for?', 'UGC creators and influencers working with more than one brand at a time, especially deals with daily or weekly quotas across TikTok, Instagram, YouTube, Facebook and Snapchat.'],
+  ['Why not just use a spreadsheet or Notion?', 'You can, until you have three brands. Dailies knows each deal\u2019s quota and platforms, so it builds today\u2019s list for you, flags anything you missed, and turns it into a report the brand can open. No formulas to keep up.'],
   ['Is the Free plan actually free?', `Yes. Free covers ${FREE_DEAL_LIMIT} brand deals with the full daily checklist and film list. No card, no time limit.`],
   ['How does the free trial work?', `Pro is free for ${TRIAL_DAYS} days, with ${TRIAL_AI_SCRIPTS} AI scripts to try the writer. Cancel before the trial ends from your account and you're never charged. After that Pro is $${PRO_PRICE} a month, or $${PRO_PRICE_YEARLY} a year, and your full ${AI_ALLOWANCE.pro} AI scripts a month kick in.`],
-  ['What counts as an AI script?', `Every script the AI writes for you, or pulls out of a brief you paste or upload, counts as one. Pro includes ${AI_ALLOWANCE.pro} a month and Pro Plus includes ${AI_ALLOWANCE.plus}. They reset on the 1st. If you run out, get ${TOPUP_SCRIPTS} more for $${TOPUP_PRICE}, and those never expire. Writing your own scripts is always free.`],
+  ['How does it turn a brief into scripts?', 'Upload the PDF or paste the brief the brand sent. Dailies finds every video in it, keeps the brand\u2019s wording word for word where they wrote a script, opens the TikTok and Instagram inspo links, and builds one card per video: hook, shots, what to say, on-screen text, caption and notes. Every card lands in your film list.'],
+  ['Can it watch the inspo videos?', 'It reads each link\u2019s caption and cover frame, which is usually enough to copy the hook and the format. It can\u2019t hear the audio, so pick trending sounds yourself.'],
+  ['What counts as an AI script?', `Each script card the AI builds, from a brief or from scratch, counts as one. Reading the brief is free. Pro includes ${AI_ALLOWANCE.pro} a month and Pro Plus includes ${AI_ALLOWANCE.plus}, and they reset on the 1st. Run out and you can get ${TOPUP_SCRIPTS} more for $${TOPUP_PRICE} that never expire. Writing your own scripts is always free.`],
   ['What do brands see when I share a report?', 'A clean page for that brand and month: every video, every platform it went up on, and the links to the live posts. Your rates, notes and other brands stay private. They can save it as a PDF.'],
   ['What happens if I cancel Pro?', 'You keep everything you logged. Your first two brands stay tracked on Free, and the rest pause until you upgrade again.'],
-  ['Where do scripts come from?', 'Write your own for free. On Pro, paste or upload the brief a brand sends and Dailies splits it into one script per video, keeping their wording. Or tell the AI writer about the product and get ready-to-film scripts with hooks, shots, on-screen text and a caption.'],
   ['Does it post for me?', 'No. Dailies is your checklist, not an auto-poster. You post the way you already do, then tap the box so nothing slips.'],
-  ['Can I use it on my phone?', 'Yes, it was made for your phone first. Add it to your home screen and it opens like an app.'],
+  ['Does it work on my phone?', 'Yes. Briefs and scripts are easiest on a computer, and your phone is perfect for tapping off posts as they go up. Add it to your home screen and it opens like an app.'],
 ]
 
 export function LandingPage() {
@@ -113,13 +184,14 @@ export function LandingPage() {
 
       <header className="hero">
         <div className="hero-copy">
-          <div className="eyebrow">Built for UGC creators</div>
+          <div className="eyebrow">Built by a working UGC creator</div>
           <h1>
             Your ultimate <mark>UGC workspace.</mark>
           </h1>
+          <p className="lede-strong">Brief in, scripts out. Every post tracked, every payout proven.</p>
           <p className="lede">
-            Every brand deal, every post you owe, every script you need to film, in one place. Dailies builds your posting list each morning, turns
-            brand briefs into ready-to-film scripts, and gives you proof of posting when it's time to get paid.
+            For creators juggling several brand deals. Dailies turns each brief into ready-to-film script cards, builds your posting list every
+            morning, and hands you proof of posting when it&apos;s time to invoice.
           </p>
           <div className="hero-cta">
             <Link className="btn primary lg" to={cta}>
@@ -139,10 +211,28 @@ export function LandingPage() {
           )}
           <p className="hero-note">Free for 2 brands · Pro from ${(PRO_PRICE_YEARLY / 12).toFixed(2)}/mo · {TRIAL_DAYS}-day free trial</p>
         </div>
-        <DemoCard />
+        <HeroVisual />
       </header>
 
       <section className="l-section">
+        <div className="l-head">
+          <div className="eyebrow">Sound familiar?</div>
+          <h2>Brand deals are the easy part. Keeping track of them isn&apos;t.</h2>
+        </div>
+        <div className="pains">
+          <div className="pain">
+            <b>The brief is everywhere</b>
+            <p className="muted">A 40-page PDF, inspo in a Discord thread, hashtags in a Slack DM, and changes in a Google Doc comment.</p>
+          </div>
+          <div className="pain">
+            <b>The quota never stops</b>
+            <p className="muted">Two videos a day, four platforms, three brands. Miss one post and the payout is on the line.</p>
+          </div>
+          <div className="pain">
+            <b>Payday means digging</b>
+            <p className="muted">The brand wants proof. You&apos;re scrolling back through three apps copying links into an invoice.</p>
+          </div>
+        </div>
         <div className="math" aria-label="3 brands times 2 videos a day times 4 platforms times 7 days equals 168 posts a week">
           <div>
             <span className="math-n">3</span>
@@ -169,8 +259,8 @@ export function LandingPage() {
             <span className="math-l">posts a week</span>
           </div>
           <p className="math-caption">
-            That's a normal week for a creator running a few campaigns. Nobody can hold it in their head, and a missed post can cost you the
-            payout. Dailies does the math and hands you the list.
+            That&apos;s a normal week for a creator running a few campaigns. Nobody can hold it in their head. Dailies does the math and hands you
+            the list.
           </p>
         </div>
       </section>
@@ -178,36 +268,57 @@ export function LandingPage() {
       <section id="how" className="l-section">
         <div className="l-head">
           <div className="eyebrow">How it works</div>
-          <h2>Set it up once. Tap through it daily.</h2>
+          <h2>From brief to paid, in one place.</h2>
         </div>
         <div className="steps">
           <div className="step">
             <span className="step-n">
-              <b>1</b>Setup
+              <b>1</b>Film
             </span>
-            <h3>Add your deals</h3>
-            <p className="muted">Videos per day or per week, which platforms, your rate, and whether the brand approves videos first.</p>
+            <h3>Brief in, script cards out</h3>
+            <p className="muted">Upload the brand&apos;s brief. Dailies finds every video, opens the inspo links, and writes a shot-by-shot card for each one.</p>
           </div>
           <div className="step">
             <span className="step-n">
-              <b>2</b>Every morning
+              <b>2</b>Post
             </span>
-            <h3>Post and tap</h3>
-            <p className="muted">Today shows exactly which video goes where. Tap TT, IG, YT as you post. Anything missed gets flagged.</p>
+            <h3>Your list, every morning</h3>
+            <p className="muted">Today shows exactly which video goes where. Tap TT, IG, YT as you post. Anything missed stays flagged.</p>
           </div>
           <div className="step">
             <span className="step-n">
-              <b>3</b>End of month
+              <b>3</b>Get paid
             </span>
-            <h3>Get paid</h3>
-            <p className="muted">Send a proof of posting report with your invoice: videos delivered, posts made, percent of quota.</p>
+            <h3>Proof in one link</h3>
+            <p className="muted">Share a clean report with every post link and your percent of quota. Attach it to your invoice and you&apos;re done.</p>
           </div>
         </div>
       </section>
 
+      <section className="l-section showcase">
+        <div className="show-copy">
+          <div className="eyebrow">
+            AI script cards <ProBadge />
+          </div>
+          <h2>Script cards you can actually film from.</h2>
+          <p className="muted">Not a wall of text. Every video in the brief becomes one card with the shots, the lines and the on-screen text in order.</p>
+          <ul className="show-list">
+            <li>Keeps the brand&apos;s script word for word when they wrote one</li>
+            <li>Opens TikTok and Instagram inspo links to match the hook and format</li>
+            <li>Writes a full script when the brief only gives you a link</li>
+            <li>Caption, hashtags and brand rules on every card</li>
+            <li>Lands in your film list, sorted by week</li>
+          </ul>
+          <Link className="btn primary lg" to={userId ? '/app/ai' : '/signup?plan=pro'}>
+            {userId ? 'Open the AI writer' : `Try it free for ${TRIAL_DAYS} days`}
+          </Link>
+        </div>
+        <ExampleCard />
+      </section>
+
       <section className="l-section">
         <div className="l-head">
-          <div className="eyebrow">What's inside</div>
+          <div className="eyebrow">What&apos;s inside</div>
           <h2>Everything your UGC deals need. One workspace.</h2>
         </div>
         <div className="features">
@@ -217,28 +328,39 @@ export function LandingPage() {
           </div>
           <div className="feature">
             <b>Missed posts</b>
-            <p className="muted small">Anything you didn't finish in the last 30 days stays on your radar until it's done.</p>
+            <p className="muted small">Anything you didn&apos;t finish in the last 30 days stays on your radar until it&apos;s done.</p>
           </div>
           <div className="feature">
-            <b>Film list + scripts</b>
+            <b>Film list</b>
             <p className="muted small">Every video you owe this week, each with its script. Mark a script done and the video moves to filmed.</p>
           </div>
           <div className="feature">
             <b>
-              AI script writer <ProBadge />
+              Write from scratch <ProBadge />
             </b>
-            <p className="muted small">Paste or upload the brand's brief and it splits into one script per video, or describe the product and get scripts written for you. It has its own AI tab, and every script lands in Film.</p>
+            <p className="muted small">No brief? Describe the product and what the brand wants, and get ready-to-film scripts with hooks and captions.</p>
           </div>
           <div className="feature">
             <b>
               Proof of posting <ProBadge />
             </b>
-            <p className="muted small">A monthly report per brand with delivered, posted, percent of quota and earnings. Copy it into your invoice.</p>
+            <p className="muted small">A shareable page per brand and month with every post link, percent of quota and earnings.</p>
           </div>
           <div className="feature">
             <b>Deal tracker</b>
-            <p className="muted small">Rates, contacts, end dates, and whether you've invoiced and been paid.</p>
+            <p className="muted small">Rates, contacts, end dates, and whether you&apos;ve invoiced and been paid.</p>
           </div>
+        </div>
+      </section>
+
+      <section className="l-section">
+        <div className="founder">
+          <div className="eyebrow">Why Dailies exists</div>
+          <p className="founder-q">
+            I built Dailies for my own brand deals. Briefs lived in PDFs, Google Docs, Discord and Slack, every brand had its own quota, and my
+            spreadsheet broke every time I added a new one. So I made the workspace I needed. Every feature here comes from a real campaign.
+          </p>
+          <p className="founder-by muted small">A working UGC creator</p>
         </div>
       </section>
 
