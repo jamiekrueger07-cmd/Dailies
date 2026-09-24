@@ -48,23 +48,30 @@ function localNow(tz: string) {
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
+// Written like a short personal note (plain text, plain links, no big header or button)
+// so Gmail files it with regular mail instead of Promotions.
 function email(lines: { name: string; left: number; total: number }[], site: string) {
   const totalLeft = lines.reduce((n, l) => n + l.left, 0)
-  const rows = lines
-    .map(
-      (l) =>
-        `<tr><td style="padding:10px 0;border-bottom:1px solid #e7e9e6;font-weight:600">${esc(l.name)}</td><td style="padding:10px 0;border-bottom:1px solid #e7e9e6;text-align:right;color:#6f7872">${l.left} of ${l.total} left</td></tr>`,
-    )
-    .join('')
+  const posts = `${totalLeft} post${totalLeft === 1 ? '' : 's'}`
+  const names = lines.map((l) => l.name)
+  const brands = names.length <= 2 ? names.join(' and ') : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
+  const list = lines.map((l) => `${l.name}: ${l.left} of ${l.total} left`)
   return {
-    subject: `${totalLeft} post${totalLeft === 1 ? '' : 's'} still open today`,
-    html: `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#14201a">
-  <div style="font-size:13px;letter-spacing:.14em;font-weight:700;color:#1e3a2c">DAILIES</div>
-  <h1 style="font-size:22px;font-weight:600;margin:18px 0 6px">You still have ${totalLeft} post${totalLeft === 1 ? '' : 's'} to check off today.</h1>
-  <p style="color:#6f7872;margin:0 0 16px">Here's what's open:</p>
-  <table style="width:100%;border-collapse:collapse;font-size:15px">${rows}</table>
-  <p style="margin:22px 0"><a href="${site}/app" style="background:#1e3a2c;color:#f4f1ea;text-decoration:none;padding:12px 18px;border-radius:4px;font-weight:600;display:inline-block">Open today's list</a></p>
-  <p style="color:#9aa59e;font-size:12px">You get this because reminders are on. Turn them off anytime in <a href="${site}/app/account" style="color:#5f7d66">your account</a>.</p>
+    subject: `Still to post today: ${brands}`,
+    text: [
+      `Quick check-in: you still have ${posts} to check off today.`,
+      '',
+      ...list.map((x) => `- ${x}`),
+      '',
+      `Open today's list: ${site}/app`,
+      '',
+      `You're getting this because reminders are on. Change the time or turn them off here: ${site}/app/account`,
+    ].join('\n'),
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222">
+<p>Quick check-in: you still have ${posts} to check off today.</p>
+<ul style="padding-left:20px;margin:0 0 12px">${list.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+<p><a href="${site}/app">Open today's list</a></p>
+<p style="color:#777;font-size:12px">You're getting this because reminders are on. <a href="${site}/app/account" style="color:#777">Change the time or turn them off</a>.</p>
 </div>`,
   }
 }
@@ -133,7 +140,7 @@ Deno.serve(async (req) => {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${Deno.env.get('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: Deno.env.get('REMINDER_FROM'), to: u.email, subject: msg.subject, html: msg.html }),
+      body: JSON.stringify({ from: Deno.env.get('REMINDER_FROM'), to: u.email, subject: msg.subject, html: msg.html, text: msg.text }),
     })
     if (r.ok) sent++
     else console.error('resend failed', u.id, await r.text())
