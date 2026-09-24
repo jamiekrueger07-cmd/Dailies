@@ -555,3 +555,51 @@ create table if not exists public.feedback (
 alter table public.feedback enable row level security;
 revoke all on public.feedback from anon, authenticated;
 create index if not exists feedback_user_time on public.feedback (user_id, created_at desc);
+
+-- =====================================================================
+-- v10 (Sept 24): third bug hunt
+-- =====================================================================
+
+-- 1. Free plan: the 2 tracked deals are the OLDEST two (sort order can be changed by the user, age can't).
+--    The app ranks the same way (state.tsx trackedDeals).
+create or replace function public.deal_writable(p_deal uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.deals d join public.profiles p on p.id = d.user_id
+    where d.id = p_deal and d.user_id = auth.uid()
+      and (p.plan in ('pro', 'plus')
+           or d.id in (select x.id from public.deals x where x.user_id = d.user_id order by x.created_at, x.id limit 2))
+  )
+$$;
+revoke all on function public.deal_writable(uuid) from public, anon;
+grant execute on function public.deal_writable(uuid) to authenticated;
+
+-- 2. Sane sizes (same caps as the app). NOT VALID: enforced for new writes, old rows are left alone.
+alter table public.deals drop constraint if exists deals_sane;
+alter table public.deals add constraint deals_sane check (
+  videos_per_day between 0 and 20 and videos_per_week between 0 and 140
+  and cardinality(platforms) <= 10 and char_length(name) <= 120
+  and char_length(coalesce(notes, '')) <= 5000 and char_length(coalesce(contact, '')) <= 500
+) not valid;
+alter table public.profiles drop constraint if exists profiles_name_len;
+alter table public.profiles add constraint profiles_name_len check (char_length(coalesce(display_name, '')) <= 80) not valid;
+alter table public.report_shares drop constraint if exists report_shares_name_len;
+alter table public.report_shares add constraint report_shares_name_len check (char_length(coalesce(creator_name, '')) <= 120) not valid;
+alter table public.post_checks drop constraint if exists post_checks_link_ok;
+alter table public.post_checks add constraint post_checks_link_ok check (link is null or (char_length(link) <= 2000 and link ~* '^https?://')) not valid;
+
+-- 3. Feedback: check the hourly limit and save in one locked step, so a burst of requests can't slip past it.
+create or replace function public.submit_feedback(uid uuid, p_email text, p_plan text, p_kind text, p_message text, p_page text)
+returns bigint language plpgsql security definer set search_path = public as $$
+declare
+  rid bigint;
+begin
+  perform 1 from public.profiles where id = uid for update;
+  if (select count(*) from public.feedback where user_id = uid and created_at > now() - interval '1 hour') >= 5 then
+    return null;
+  end if;
+  insert into public.feedback (user_id, email, plan, kind, message, page)
+  values (uid, p_email, p_plan, p_kind, p_message, p_page) returning id into rid;
+  return rid;
+end $$;
+revoke all on function public.submit_feedback(uuid, text, text, text, text, text) from public, anon, authenticated;
