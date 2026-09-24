@@ -33,10 +33,40 @@ function ToastView() {
   )
 }
 
+const NAV = [
+  { to: '/app', end: true, label: 'Today', Icon: IconToday },
+  { to: '/app/film', end: false, label: 'Film', Icon: IconFilm },
+  { to: '/app/ai', end: false, label: 'AI', Icon: IconAi },
+  { to: '/app/report', end: false, label: 'Report', Icon: IconReport },
+  { to: '/app/deals', end: false, label: 'Deals', Icon: IconDeals },
+]
+
 function Shell({ children }: { children: ReactNode }) {
-  const { isPro, email } = useApp()
+  const { isPro, isPlus, email } = useApp()
+  const planLabel = isPlus ? 'Pro Plus' : isPro ? 'Pro' : 'Free plan'
   return (
     <div className="shell">
+      {/* computer: menu down the left side */}
+      <aside className="side" aria-label="Main menu">
+        <Link to="/" className="brand side-brand" aria-label="Dailies homepage">
+          <Wordmark />
+        </Link>
+        <nav className="side-nav">
+          {NAV.map(({ to, end, label, Icon }) => (
+            <NavLink key={to} to={to} end={end}>
+              <Icon />
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+        <NavLink to="/app/account" className="side-account">
+          <span className="side-plan">{planLabel}</span>
+          <span className="side-email">{email}</span>
+          <span className="side-acc-link">Account &amp; billing</span>
+        </NavLink>
+      </aside>
+
+      {/* phone: top bar + tabs along the bottom */}
       <header className="app-bar">
         <Link to="/" className="brand" aria-label="Dailies homepage">
           <Wordmark />
@@ -46,25 +76,14 @@ function Shell({ children }: { children: ReactNode }) {
           <span>{isPro ? 'Pro' : 'Free'} · Account</span>
         </Link>
       </header>
-      <main>
-        {children}
-      </main>
+      <main>{children}</main>
       <nav className="tabs">
-        <NavLink to="/app" end>
-          <IconToday />Today
-        </NavLink>
-        <NavLink to="/app/film">
-          <IconFilm />Film
-        </NavLink>
-        <NavLink to="/app/ai">
-          <IconAi />AI
-        </NavLink>
-        <NavLink to="/app/report">
-          <IconReport />Report
-        </NavLink>
-        <NavLink to="/app/deals">
-          <IconDeals />Deals
-        </NavLink>
+        {NAV.map(({ to, end, label, Icon }) => (
+          <NavLink key={to} to={to} end={end}>
+            <Icon />
+            {label}
+          </NavLink>
+        ))}
       </nav>
       <ToastView />
       <UpgradeSheet />
