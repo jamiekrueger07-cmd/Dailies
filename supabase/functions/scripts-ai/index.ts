@@ -323,9 +323,10 @@ Deno.serve(async (req) => {
 
     // ---- Brief, step 1: find the videos. Free (doesn't use AI scripts). ----
     if (body.mode === 'outline') {
-      // It's free, but it still costs us: cap it at 15 briefs an hour per person.
-      const { count: recent } = await admin.from('ai_runs').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('mode', 'outline').gte('created_at', new Date(Date.now() - 3600_000).toISOString())
-      if ((recent ?? 0) >= 15) return json({ error: "You've read a lot of briefs this hour. Try again in a little while." }, 429)
+      // It's free, but it still costs us: cap it at 15 briefs an hour per person (claimed up front, so parallel requests count).
+      const { data: outlineRun, error: claimErr } = await admin.rpc('claim_outline', { uid: user.id })
+      if (claimErr) throw claimErr
+      if (outlineRun == null) return json({ error: "You've read a lot of briefs this hour. Try again in a little while." }, 429)
       let text: string = typeof body.text === 'string' ? body.text : ''
       if (body.file?.type === 'application/pdf' && body.file.data) {
         if (body.file.data.length > 11_000_000) return json({ error: 'That file is too big. Try under 8 MB.' }, 413)
@@ -345,7 +346,7 @@ Deno.serve(async (req) => {
       const lines = text.split('\n')
       const numbered = lines.map((l, i) => `${i + 1}| ${l}`).join('\n')
       const { input, inTok, outTok } = await claude(splitModel, OUTLINE_PROMPT(brand), [{ type: 'text', text: `<brief>\n${numbered}\n</brief>\n\nList every video and the shared rules.` }], OUTLINE_TOOL, 4000)
-      await log('outline', 0, splitModel, inTok, outTok)
+      await finish(outlineRun, 0, splitModel, inTok, outTok)
       const videos = asList(input.videos)
         .map((v: any) => {
           const a = Math.max(1, Math.min(lines.length, Number(v.start_line) || 0))
@@ -468,6 +469,6 @@ Deno.serve(async (req) => {
   } catch (e) {
     if (e instanceof AiError) return json({ error: e.message }, e.status)
     console.error(e)
-    return json({ error: (e as Error).message }, 500)
+    return json({ error: "Something went wrong writing your scripts. Try again in a minute, or email support@dailies.digital if it keeps happening." }, 500)
   }
 })
