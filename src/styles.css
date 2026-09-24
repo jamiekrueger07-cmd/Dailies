@@ -740,3 +740,10 @@ button.vid-label:hover { color: var(--ink); }
   .ex-card { padding: 16px; }
   .st { grid-template-columns: 64px 1fr; }
 }
+
+/* ---------- v12: bug-hunt fixes ---------- */
+.vkill.confirm { font-size: 11px; font-weight: 700; color: var(--danger); padding: 6px 8px; border: 1px solid var(--danger); border-radius: 4px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .toast-undo { color: var(--forest); } }
+:root[data-theme='dark'] .toast-undo { color: var(--forest); }
+:root:not([data-theme='dark']) { --muted: #66706a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) { --muted: #9aa59e; } }
