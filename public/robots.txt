@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /r/
+Disallow: /reset-password
+
+Sitemap: https://dailies.digital/sitemap.xml
