@@ -103,6 +103,59 @@ Split it into one script per video the creator has to film. Rules:
 - If the brief is one general concept with no separate scripts, return one script.
 - Ignore legal boilerplate, payment terms and contact details.`
 
+// Step 1 of reading a brief: find every video in it. The brief comes in with numbered lines.
+const OUTLINE_TOOL = {
+  name: 'list_videos',
+  description: 'List every video the creator has to film, in the order they appear, plus the rules that apply to all of them.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      shared_rules: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Requirements that apply to every video (approval, editing, captions, fonts, lighting, what must be shown). Keep the brand wording, one rule per item.',
+      },
+      videos: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', description: 'How the brief labels it, e.g. "Warm-up 2", "Week 1 · Script 3"' },
+            title: { type: 'string', description: 'The script title if the brief gives one, else empty' },
+            start_line: { type: 'integer' },
+            end_line: { type: 'integer', description: 'Last line that belongs to this video (its script, links, hashtags, directions)' },
+          },
+          required: ['label', 'title', 'start_line', 'end_line'],
+        },
+      },
+    },
+    required: ['shared_rules', 'videos'],
+  },
+}
+const OUTLINE_PROMPT = (brand: string) => `You are reading a UGC creator's brand brief for "${brand}". Each line starts with its line number.
+Find every separate video the creator has to make: warm-up videos, and each script in each week (Script 1, Script 2...), in order.
+- A video can be a full written script, just an inspiration link with hashtags, or instructions ("follow the format in week 2"). Include all of them.
+- start_line/end_line must cover everything that belongs to that video: its label, title, links, directions, spoken script and hashtags. Don't include the repeated rules block or week headings.
+- shared_rules: the requirements repeated for all videos (e.g. "Send all videos to Jayden for approval before posting", caption style, font, lighting, "Must show the demo on screen"). Include each rule once.
+- Ignore payment terms, contracts and contact details.`
+
+// Step 2: turn one video into a ready-to-film script card, the same way the creator's script desk does.
+const CARD_PROMPT = (brand: string) => `You turn ONE video from a UGC creator's brand brief for "${brand}" into a clean, ready-to-film script card.
+Rules:
+- Keep the brand's exact words for everything spoken or shown on screen. Never rewrite, shorten, improve or invent lines. Only repair broken PDF line wraps and obvious glued words (e.g. "Collegehttps://" -> "College" + link). Links split across two lines must be joined back into one URL.
+- steps, in filming order:
+  - "beat" = section headings. Start with "Hook", then follow the script's own structure (e.g. "Number one", "Tip 2", "Demo"), and end with "CTA" if there is a call to action.
+  - "say" = every spoken line, word for word. Break long paragraphs into natural lines of one to three sentences. Every word of the script must appear once.
+  - "show" = what to film or put on screen, taken from THIS video's directions (e.g. "Show the LearnKata demo on your laptop or iPad"). If the rules require the product/demo on screen, add ONE "show" step at the moment the script talks about the product. Don't turn the other general rules (lighting, captions, fonts, approval) into steps; they go in notes.
+  - "text" = on-screen text, hooks, lists and overlays, verbatim. Text that is meant to be read on screen rather than spoken (e.g. a list hook like "10 out of 10 study habits...") is a "text" step. If the brief says to copy the inspiration video's on-screen text or hook, add a "text" step: "Use the same on-screen hook as the inspo video".
+- hook: the on-screen or spoken hook (the first thing viewers see or hear).
+- title: start with the brief's label (e.g. "Warm-up 2" or "Week 1 · Script 2"), then ": " and the script's title if it has one, otherwise a short name from its topic.
+- format: e.g. "Talking head · ~75 sec". Estimate length only from the words in your "say" steps (2.5 words per second). If there are no spoken lines, leave the length out, e.g. "On-screen text · follow the inspo".
+- caption: caption and hashtags from the brief, verbatim. Empty if none.
+- notes: a single string with one item per line (separate lines with a line break), each starting with "• ": first the inspiration/reference link(s) as full URLs ("• Inspo: https://..."), then anything specific to this video (e.g. "Text first if you have any questions"), then the brand rules that apply to every video.
+- If this video is only a link or only instructions, still return one card: put the directions in "show"/"text" steps and the link in notes. Do not invent spoken lines.
+Return exactly one script.`
+
 const WRITE_PROMPT = `You write short-form UGC video scripts for creators posting brand deals on TikTok, Instagram Reels and YouTube Shorts.
 Write scripts that sound like a real person talking to their phone, not an ad:
 - The hook lands in the first 1-3 seconds and gives a reason to keep watching (curiosity, a relatable problem, a bold honest take, a POV).
@@ -113,6 +166,66 @@ Write scripts that sound like a real person talking to their phone, not an ad:
 - Fit the requested length (about 2.5 spoken words per second).
 - Never invent claims, prices, discounts, stats or features that weren't given. Respect anything the creator says to avoid.
 - Caption: one or two casual lines plus 2-4 relevant hashtags and #ad.`
+
+class AiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message)
+  }
+}
+
+async function claude(model: string, system: string, content: unknown[], tool: any, maxTokens: number) {
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ model, max_tokens: maxTokens, system, tools: [tool], tool_choice: { type: 'tool', name: tool.name }, messages: [{ role: 'user', content }] }),
+  })
+  if (!r.ok) {
+    const errText = await r.text()
+    console.error('anthropic error', r.status, errText)
+    if (r.status === 429 || r.status === 529) throw new AiError(429, 'RATE_LIMIT') // the app waits and tries again
+    if (r.status === 400 && /pdf|page|document/i.test(errText))
+      throw new AiError(413, `The AI couldn't read that PDF, it may be too long. Export just the script pages (up to ${PDF_PAGE_LIMIT}) and try again.`)
+    throw new AiError(502, 'The script helper is busy right now. Try again in a minute.')
+  }
+  const out = await r.json()
+  if (out.stop_reason === 'max_tokens') console.error('hit max_tokens', model, maxTokens)
+  const call = (out.content ?? []).find((c: any) => c.type === 'tool_use')
+  return { input: call?.input ?? {}, inTok: out.usage?.input_tokens ?? 0, outTok: out.usage?.output_tokens ?? 0, truncated: out.stop_reason === 'max_tokens' }
+}
+
+const cleanScripts = (raw: unknown) =>
+  asList(raw)
+    .filter((s: any) => s && (s.title || s.hook))
+    .map((s: any) => ({
+      title: String(s.title ?? '').slice(0, 140),
+      hook: String(s.hook ?? ''),
+      format: String(s.format ?? ''),
+      steps: asList(s.steps)
+        .filter((x: any) => x && ['beat', 'say', 'show', 'text'].includes(x.kind) && x.text)
+        .map((x: any) => ({ kind: x.kind, text: String(x.text) })),
+      caption: asText(s.caption),
+      notes: asText(s.notes),
+    }))
+
+// The model sometimes sends notes or a caption as a list: keep one item per line.
+function asText(v: unknown): string {
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean).join('\n')
+  return String(v ?? '')
+}
+
+async function pdfText(b64: string) {
+  const { extractText, getDocumentProxy } = await import('npm:unpdf@1.8.1')
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const pdf = await getDocumentProxy(bytes)
+  const { text } = await extractText(pdf, { mergePages: false })
+  return (text as string[]).join('\n')
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -132,12 +245,76 @@ Deno.serve(async (req) => {
     if ((left ?? 0) <= 0) return json({ error: 'AI_LIMIT' }, 429)
 
     const body = await req.json()
+    const brand = String(body.brand ?? 'the brand')
+    const splitModel = Deno.env.get('ANTHROPIC_MODEL_SPLIT') ?? 'claude-haiku-4-5-20251001'
+    const log = async (mode: string, n: number, model: string, inTok: number, outTok: number) => {
+      const { error } = await admin.rpc('record_ai_run', { uid: user.id, run_mode: mode, n, run_model: model, in_tok: inTok, out_tok: outTok, cost: costUsd(model, inTok, outTok) })
+      if (error) console.error('record_ai_run failed', error)
+    }
+
+    // ---- Brief, step 1: find the videos. Free (doesn't use AI scripts). ----
+    if (body.mode === 'outline') {
+      let text: string = typeof body.text === 'string' ? body.text : ''
+      if (body.file?.type === 'application/pdf' && body.file.data) {
+        if (body.file.data.length > 11_000_000) return json({ error: 'That file is too big. Try under 8 MB.' }, 413)
+        const pages = pdfPages(body.file.data)
+        if (pages > PDF_PAGE_LIMIT) return json({ error: `That PDF has ${pages} pages. The limit is ${PDF_PAGE_LIMIT}, so export just the script pages.` }, 413)
+        try {
+          text = await pdfText(body.file.data)
+        } catch (e) {
+          console.error('pdf text failed', e)
+          text = ''
+        }
+        // A scanned PDF has no text to read: the app falls back to sending the whole PDF in one go.
+        if (text.replace(/\s+/g, '').length < 200) return json({ fallback: true })
+      }
+      text = text.replace(/\r/g, '').slice(0, 80_000)
+      if (!text.trim()) return json({ error: 'Paste the brief or upload a file first.' }, 400)
+      const lines = text.split('\n')
+      const numbered = lines.map((l, i) => `${i + 1}| ${l}`).join('\n')
+      const { input, inTok, outTok } = await claude(splitModel, OUTLINE_PROMPT(brand), [{ type: 'text', text: `<brief>\n${numbered}\n</brief>\n\nList every video and the shared rules.` }], OUTLINE_TOOL, 4000)
+      await log('outline', 0, splitModel, inTok, outTok)
+      const videos = asList(input.videos)
+        .map((v: any) => {
+          const a = Math.max(1, Math.min(lines.length, Number(v.start_line) || 0))
+          const b = Math.max(a, Math.min(lines.length, Number(v.end_line) || a))
+          return { label: String(v.label ?? '').slice(0, 80), title: String(v.title ?? '').slice(0, 140), text: lines.slice(a - 1, b).join('\n').trim() }
+        })
+        .filter((v: any) => v.text)
+      const shared = asList(input.shared_rules).map((r: any) => String(r)).filter(Boolean)
+      if (!videos.length) return json({ error: "Couldn't find any videos in that brief. Try pasting just the script part." }, 422)
+      return json({ videos, shared })
+    }
+
+    // ---- Brief, step 2: one video -> one script card. Uses 1 AI script. ----
+    if (body.mode === 'card') {
+      const v = body.video ?? {}
+      const shared: string[] = Array.isArray(body.shared) ? body.shared.map(String).slice(0, 30) : []
+      const text = String(v.text ?? '').slice(0, 20_000)
+      if (!text.trim()) return json({ error: 'Nothing to turn into a script.' }, 400)
+      const msg = [
+        `Brief label: ${v.label || '(none)'}${v.title ? `\nScript title: ${v.title}` : ''}`,
+        `Rules that apply to every video:\n${shared.length ? shared.map((r) => `- ${r}`).join('\n') : '(none given)'}`,
+        `<video>\n${text}\n</video>`,
+        'Turn this video into one script card and save it.',
+      ].join('\n\n')
+      // 4800 keeps two cards at a time under a new account's per-minute limit; a very long script gets a second, roomier try.
+      let res = await claude(splitModel, CARD_PROMPT(brand), [{ type: 'text', text: msg }], TOOL, 4800)
+      if (res.truncated) res = await claude(splitModel, CARD_PROMPT(brand), [{ type: 'text', text: msg }], TOOL, 12000)
+      const { input, inTok, outTok, truncated } = res
+      const scripts = cleanScripts(input.scripts).slice(0, 1)
+      if (!scripts.length) return json({ error: truncated ? 'That script was too long to format in one go.' : "Couldn't turn that part into a script." }, 422)
+      await log('card', 1, splitModel, inTok, outTok)
+      return json({ scripts })
+    }
+
+    // ---- Older one-shot paths: whole brief at once (scanned PDFs), or writing new scripts ----
     let model: string
     let system: string
     let content: unknown[]
     if (body.mode === 'split') {
-      model = Deno.env.get('ANTHROPIC_MODEL_SPLIT') ?? 'claude-haiku-4-5-20251001' // splitting is easy; the cheaper model is plenty
-      system = SPLIT_PROMPT(String(body.brand ?? 'the brand'))
+      model = splitModel
+      system = SPLIT_PROMPT(brand)
       if (body.file?.type === 'application/pdf' && body.file.data) {
         if (body.file.data.length > 11_000_000) return json({ error: 'That file is too big. Try under 8 MB.' }, 413)
         const pages = pdfPages(body.file.data)
@@ -174,43 +351,8 @@ Deno.serve(async (req) => {
       ]
     } else return json({ error: 'Unknown request' }, 400)
 
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': Deno.env.get('ANTHROPIC_API_KEY')!,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 8000,
-        system,
-        tools: [TOOL],
-        tool_choice: { type: 'tool', name: 'save_scripts' },
-        messages: [{ role: 'user', content }],
-      }),
-    })
-    if (!r.ok) {
-      const errText = await r.text()
-      console.error('anthropic error', r.status, errText)
-      if (r.status === 400 && /pdf|page|document/i.test(errText))
-        return json({ error: `The AI couldn't read that PDF, it may be too long. Export just the script pages (up to ${PDF_PAGE_LIMIT}) and try again.` }, 413)
-      return json({ error: 'The script helper is busy right now. Try again in a minute.' }, 502)
-    }
-    const out = await r.json()
-    const call = (out.content ?? []).find((c: any) => c.type === 'tool_use')
-    let scripts = asList(call?.input?.scripts)
-      .filter((s: any) => s && (s.title || s.hook))
-      .map((s: any) => ({
-        title: String(s.title ?? '').slice(0, 140),
-        hook: String(s.hook ?? ''),
-        format: String(s.format ?? ''),
-        steps: asList(s.steps)
-          .filter((x: any) => x && ['beat', 'say', 'show', 'text'].includes(x.kind) && x.text)
-          .map((x: any) => ({ kind: x.kind, text: String(x.text) })),
-        caption: String(s.caption ?? ''),
-        notes: String(s.notes ?? ''),
-      }))
+    const { input, inTok, outTok } = await claude(model, system, content, TOOL, 8000)
+    let scripts = cleanScripts(input.scripts)
 
     // A brief can hold more scripts than someone has left: give them what they have room for.
     let note: string | undefined
@@ -218,21 +360,10 @@ Deno.serve(async (req) => {
       note = `This brief had ${scripts.length} scripts. You had ${left} AI script${left === 1 ? '' : 's'} left, so here are the first ${left}.`
       scripts = scripts.slice(0, left)
     }
-
-    const inTok = out.usage?.input_tokens ?? 0
-    const outTok = out.usage?.output_tokens ?? 0
-    const { error: logErr } = await admin.rpc('record_ai_run', {
-      uid: user.id,
-      run_mode: body.mode,
-      n: scripts.length,
-      run_model: model,
-      in_tok: inTok,
-      out_tok: outTok,
-      cost: costUsd(model, inTok, outTok),
-    })
-    if (logErr) console.error('record_ai_run failed', logErr)
+    await log(body.mode, scripts.length, model, inTok, outTok)
     return json({ scripts, note })
   } catch (e) {
+    if (e instanceof AiError) return json({ error: e.message }, e.status)
     console.error(e)
     return json({ error: (e as Error).message }, 500)
   }
