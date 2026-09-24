@@ -33,6 +33,6 @@ Deno.serve(async (req) => {
     return json({ url: portal.url })
   } catch (e) {
     console.error(e)
-    return json({ error: (e as Error).message }, 500)
+    return json({ error: "Couldn't open billing. Try again in a minute, or email support@dailies.digital if it keeps happening." }, 500)
   }
 })
