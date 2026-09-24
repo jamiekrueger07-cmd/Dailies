@@ -306,16 +306,18 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
 
       {isPro && !outOfAi && (
         <p className="ai-left muted tiny">
-          {left} AI script{left === 1 ? '' : 's'} left · resets {aiResetsOn()}
+          {left} AI script{left === 1 ? '' : 's'} left · {profile.subscriptionStatus === 'trialing' ? 'more when your trial ends' : `resets ${aiResetsOn()}`}
         </p>
       )}
 
       {outOfAi && (
         <div className="out-of-ai">
           <p>
-            <b>You've used all your AI scripts for this month.</b>
+            <b>{profile.subscriptionStatus === 'trialing' ? "You've used your free-trial AI scripts." : "You've used all your AI scripts for this month."}</b>
           </p>
-          <p className="muted small">They reset {aiResetsOn()}. Writing your own scripts still works anytime.</p>
+          <p className="muted small">
+            {profile.subscriptionStatus === 'trialing' ? 'Your full monthly allowance starts when the trial ends.' : `They reset ${aiResetsOn()}.`} Writing your own scripts still works anytime.
+          </p>
           <div className="deal-actions">
             <button className="btn primary small" onClick={buyMore}>
               Get {TOPUP_SCRIPTS} more for ${TOPUP_PRICE}
