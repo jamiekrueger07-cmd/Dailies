@@ -114,40 +114,50 @@ Deno.serve(async (req) => {
   for (const u of users) {
     const now = localNow(u.timezone || 'America/Los_Angeles')
     if (now.hour < u.reminder_hour || u.last_reminder_on === now.date || !u.email) continue
+    try {
+      // Claim today's reminder first, in one step: two overlapping runs can't both send it,
+      // and one account that errors or times out can't hold up everyone after it every hour.
+      const { data: claimed } = await admin
+        .from('profiles')
+        .update({ last_reminder_on: now.date })
+        .eq('id', u.id)
+        .or(`last_reminder_on.is.null,last_reminder_on.neq.${now.date}`)
+        .select('id')
+      if (!claimed?.length) continue
 
-    const [{ data: deals }, { data: checks }] = await Promise.all([
-      admin.from('deals').select('id,name,quota_mode,videos_per_day,videos_per_week,platforms,start_date,end_date,status').eq('user_id', u.id).order('sort_order').order('id'),
-      admin.from('post_checks').select('deal_id,video_no,platform').eq('user_id', u.id).eq('date', now.date),
-    ])
-    const done = new Set((checks ?? []).map((c) => `${c.deal_id}|${c.video_no}|${c.platform}`))
-    // Free plan tracks only the first two brands, so only remind about those
-    const tracked = u.plan === 'pro' || u.plan === 'plus' ? deals ?? [] : (deals ?? []).slice(0, 2)
-    const lines = tracked
-      .map((d: Deal) => {
-        const vids = videosOn(d, now.date)
-        let left = 0
-        for (let v = 1; v <= vids; v++) for (const p of d.platforms) if (!done.has(`${d.id}|${v}|${p}`)) left++
-        return { name: d.name, left, total: vids * d.platforms.length }
+      const [{ data: deals }, { data: checks }] = await Promise.all([
+        admin.from('deals').select('id,name,quota_mode,videos_per_day,videos_per_week,platforms,start_date,end_date,status,sort_order,created_at').eq('user_id', u.id).order('created_at').order('id'),
+        admin.from('post_checks').select('deal_id,video_no,platform').eq('user_id', u.id).eq('date', now.date),
+      ])
+      const done = new Set((checks ?? []).map((c) => `${c.deal_id}|${c.video_no}|${c.platform}`))
+      // Free plan tracks only the first two brands, so only remind about those
+      // (the two oldest, same as the app and deal_writable), listed in the user's own order.
+      const tracked = (u.plan === 'pro' || u.plan === 'plus' ? deals ?? [] : (deals ?? []).slice(0, 2)).sort(
+        (a: any, b: any) => a.sort_order - b.sort_order || (a.id < b.id ? -1 : 1),
+      )
+      const lines = tracked
+        .map((d: Deal) => {
+          // Same caps as the app (20 videos a day, 5 platforms), so odd data can't blow up the loop.
+          const vids = Math.min(20, Math.max(0, videosOn(d, now.date)))
+          const platforms = [...new Set(d.platforms ?? [])].slice(0, 10)
+          let left = 0
+          for (let v = 1; v <= vids; v++) for (const p of platforms) if (!done.has(`${d.id}|${v}|${p}`)) left++
+          return { name: String(d.name ?? '').slice(0, 60), left, total: vids * platforms.length }
+        })
+        .filter((l) => l.left > 0)
+      if (!lines.length) continue
+
+      const msg = email(lines, site)
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${Deno.env.get('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: Deno.env.get('REMINDER_FROM'), to: u.email, subject: msg.subject, html: msg.html, text: msg.text }),
       })
-      .filter((l) => l.left > 0)
-
-    // Claim today's reminder in one step, so two overlapping runs can't both send it.
-    const { data: claimed } = await admin
-      .from('profiles')
-      .update({ last_reminder_on: now.date })
-      .eq('id', u.id)
-      .or(`last_reminder_on.is.null,last_reminder_on.neq.${now.date}`)
-      .select('id')
-    if (!claimed?.length || !lines.length) continue
-
-    const msg = email(lines, site)
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${Deno.env.get('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: Deno.env.get('REMINDER_FROM'), to: u.email, subject: msg.subject, html: msg.html, text: msg.text }),
-    })
-    if (r.ok) sent++
-    else console.error('resend failed', u.id, await r.text())
+      if (r.ok) sent++
+      else console.error('resend failed', u.id, await r.text())
+    } catch (e) {
+      console.error('reminder failed', u.id, e)
+    }
   }
   return new Response(JSON.stringify({ checked: users.length, sent }), { headers: { 'Content-Type': 'application/json' } })
 })
