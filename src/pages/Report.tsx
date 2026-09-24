@@ -134,14 +134,16 @@ export function ReportPage() {
           <button className="btn icon" onClick={() => shift(-1)} aria-label="Previous month">
             ‹
           </button>
-          <button className="btn">{monthLabel(`${month}-01`)}</button>
-          <button className="btn icon" onClick={() => shift(1)} aria-label="Next month">
+          <button className="btn" onClick={() => setMonth(today().slice(0, 7))} title="Jump to this month" disabled={month === today().slice(0, 7)}>
+            {monthLabel(`${month}-01`)}
+          </button>
+          <button className="btn icon" onClick={() => shift(1)} aria-label="Next month" disabled={month >= today().slice(0, 7)}>
             ›
           </button>
         </div>
       </header>
 
-      <div className={isPro ? 'report-body' : 'report-body locked'}>
+      <div className={isPro ? 'report-body' : 'report-body locked'} inert={!isPro} aria-hidden={!isPro || undefined}>
         <div className="summary">
           <div className="stat">
             <div className="stat-n">{tot.videosDone}</div>
