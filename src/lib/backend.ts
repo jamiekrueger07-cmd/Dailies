@@ -2,7 +2,7 @@
 //  - cloud:   real accounts, data and billing (Supabase + Stripe). Used when VITE_SUPABASE_URL is set.
 //  - preview: everything in this browser, "Upgrade" just flips the plan. Used for the clickable preview.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { AI_ALLOWANCE, aiAllowance, aiLeft, DEFAULT_SETTINGS, FREE_DEAL_LIMIT, TOPUP_SCRIPTS, type Check, type Plan, type Tier, type Deal, type Interval, type Profile, type Script, type ScriptDraft, type Settings, type SharedReport, type Video, type WriteBrief } from './model'
+import { aiAllowance, aiLeft, DEFAULT_SETTINGS, today, FREE_DEAL_LIMIT, TOPUP_SCRIPTS, type Check, type Plan, type Tier, type Deal, type Interval, type Profile, type Script, type ScriptDraft, type Settings, type SharedReport, type Video, type WriteBrief } from './model'
 import { sampleScripts, splitBrief } from './localScripts'
 
 export interface User {
@@ -40,6 +40,8 @@ export interface Backend {
   signIn(email: string, password: string): Promise<void>
   signUp(email: string, password: string, name?: string): Promise<{ needsConfirm: boolean }>
   resetPassword(email: string): Promise<void>
+  /** Set a new password (after following a reset link, which logs you in). */
+  updatePassword(password: string): Promise<void>
   signOut(): Promise<void>
   getProfile(userId: string): Promise<Profile>
   load(userId: string): Promise<Data>
@@ -208,7 +210,7 @@ function cloud(sb: SupabaseClient): Backend {
     },
     onAuthChange(cb) {
       const { data } = sb.auth.onAuthStateChange((evt) => {
-        if (evt === 'SIGNED_IN' || evt === 'SIGNED_OUT' || evt === 'USER_UPDATED') cb()
+        if (evt === 'SIGNED_IN' || evt === 'SIGNED_OUT' || evt === 'USER_UPDATED' || evt === 'PASSWORD_RECOVERY') cb()
       })
       return () => data.subscription.unsubscribe()
     },
@@ -226,8 +228,12 @@ function cloud(sb: SupabaseClient): Backend {
       return { needsConfirm: !data.session }
     },
     async resetPassword(email) {
-      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/app/account` })
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` })
       if (error) throw error
+    },
+    async updatePassword(password) {
+      const { error } = await sb.auth.updateUser({ password })
+      if (error) throw /different from the old/i.test(error.message) ? new Error('Pick a password you haven’t used before.') : error
     },
     async signOut() {
       await sb.auth.signOut()
@@ -312,21 +318,31 @@ function cloud(sb: SupabaseClient): Backend {
     },
     shareUrl: (token) => `${window.location.origin}/r/${token}`,
     async load(userId) {
+      // Supabase returns at most 1,000 rows per request, so page through everything.
+      const all = async (make: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>) => {
+        const rows: any[] = []
+        for (let from = 0; ; from += 1000) {
+          const r = await make(from, from + 999)
+          if (r.error) return { data: null, error: r.error }
+          rows.push(...(r.data ?? []))
+          if (!r.data || r.data.length < 1000) return { data: rows, error: null }
+        }
+      }
       const [d, c, v, sc] = await Promise.all([
-        sb.from('deals').select('*').eq('user_id', userId).order('sort_order'),
-        sb.from('post_checks').select('deal_id,date,video_no,platform,link').eq('user_id', userId),
-        sb.from('videos').select('*').eq('user_id', userId).order('sort_order'),
-        sb.from('scripts').select('*').eq('user_id', userId).order('sort_order'),
+        sb.from('deals').select('*').eq('user_id', userId).order('sort_order').order('id'),
+        all((a, b) => sb.from('post_checks').select('deal_id,date,video_no,platform,link').eq('user_id', userId).order('date').order('deal_id').order('video_no').order('platform').range(a, b)),
+        all((a, b) => sb.from('videos').select('*').eq('user_id', userId).order('sort_order').order('id').range(a, b)),
+        all((a, b) => sb.from('scripts').select('*').eq('user_id', userId).order('sort_order').order('id').range(a, b)),
       ])
       if (d.error) throw d.error
       if (c.error) throw c.error
       if (v.error) throw v.error
       return {
-        deals: d.data.map(dealFromRow),
-        checks: c.data.map((r: any) => ({ dealId: r.deal_id, date: r.date, videoNo: r.video_no, platform: r.platform, link: r.link })),
-        videos: v.data.map(videoFromRow),
+        deals: d.data!.map(dealFromRow),
+        checks: c.data!.map((r: any) => ({ dealId: r.deal_id, date: r.date, videoNo: r.video_no, platform: r.platform, link: r.link })),
+        videos: v.data!.map(videoFromRow),
         // scripts arrived after launch; an older database without the table still loads
-        scripts: sc.error ? [] : sc.data.map(scriptFromRow),
+        scripts: sc.error ? [] : sc.data!.map(scriptFromRow),
       }
     },
     async saveDeals(userId, deals) {
@@ -406,7 +422,7 @@ function cloud(sb: SupabaseClient): Backend {
 
 // ---------------- preview (local only) ----------------
 const K = 'dailies-preview:'
-const aiKey = () => `aiUsed:${new Date().toISOString().slice(0, 7)}`
+const aiKey = () => `aiUsed:${today().slice(0, 7)}`
 // Each preview account keeps its own data, like the real site. Only these keys are shared.
 const GLOBAL = new Set(['user', 'accounts', 'shares'])
 let scopeOverride: string | null = null
@@ -511,6 +527,13 @@ function preview(): Backend {
       return { needsConfirm: false }
     },
     async resetPassword() {},
+    async updatePassword(password) {
+      const user = get<User | null>('user', null)
+      if (!user?.email) throw new Error('Open the reset link from your email again.')
+      const accounts = get<Record<string, PreviewAccount>>('accounts', {})
+      const key = user.email.trim().toLowerCase()
+      if (accounts[key]) set('accounts', { ...accounts, [key]: { ...accounts[key], pw: pwHash(password) } })
+    },
     async signOut() {
       set('user', null)
       emit()
@@ -613,7 +636,9 @@ function preview(): Backend {
       if (plan === 'free') throw new Error('The script helper is a Pro feature.')
       const used = get<number>(aiKey(), 0)
       const bonus = get<number>('aiBonus', 0)
-      const left = aiLeft({ plan, aiUsed: used, aiBonus: bonus })
+      const bill = get<{ trialEnd: string | null }>('billing', { trialEnd: null })
+      const subscriptionStatus = bill.trialEnd && bill.trialEnd > new Date().toISOString() ? 'trialing' : 'active'
+      const left = aiLeft({ plan, subscriptionStatus, aiUsed: used, aiBonus: bonus })
       if (left <= 0) throw new Error("You've used all your AI scripts for this month.")
       if (req.mode === 'write' && req.brief.count > left) throw new Error(`You have ${left} AI script${left === 1 ? '' : 's'} left. Lower the number or get more.`)
       await new Promise((r) => setTimeout(r, 700))
@@ -630,7 +655,7 @@ function preview(): Backend {
         out = out.slice(0, left)
       }
       // spend the monthly allowance first, then top-ups
-      const fromMonth = Math.min(out.length, Math.max(0, AI_ALLOWANCE[plan] - used))
+      const fromMonth = Math.min(out.length, Math.max(0, aiAllowance({ plan, subscriptionStatus }) - used))
       set(aiKey(), used + out.length)
       set('aiBonus', bonus - (out.length - fromMonth))
       return { scripts: out, note }
