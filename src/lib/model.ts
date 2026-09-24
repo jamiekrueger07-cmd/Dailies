@@ -84,9 +84,14 @@ export const planName = (p: Plan) => (p === 'plus' ? 'Pro Plus' : p === 'pro' ? 
 export const tierPrice = (t: Tier, i: Interval) => (t === 'plus' ? (i === 'year' ? PLUS_PRICE_YEARLY : PLUS_PRICE) : i === 'year' ? PRO_PRICE_YEARLY : PRO_PRICE)
 export const tierPriceText = (t: Tier, i: Interval) => `$${tierPrice(t, i)}/${i === 'year' ? 'year' : 'month'}`
 
+/** During the free trial you get a small taste of the AI writer. The full allowance starts once you pay. */
+export const TRIAL_AI_SCRIPTS = 5
+export const aiAllowance = (p: { plan: Plan; subscriptionStatus?: string | null }) =>
+  p.subscriptionStatus === 'trialing' ? Math.min(TRIAL_AI_SCRIPTS, AI_ALLOWANCE[p.plan]) : AI_ALLOWANCE[p.plan]
+
 /** AI scripts left right now: what's left of this month's allowance, plus any top-ups. */
-export const aiLeft = (p: { plan: Plan; aiUsed: number; aiBonus: number }) =>
-  Math.max(0, AI_ALLOWANCE[p.plan] - p.aiUsed) + Math.max(0, p.aiBonus)
+export const aiLeft = (p: { plan: Plan; subscriptionStatus?: string | null; aiUsed: number; aiBonus: number }) =>
+  Math.max(0, aiAllowance(p) - p.aiUsed) + Math.max(0, p.aiBonus)
 
 /** First day of next month, when the monthly allowance resets. */
 export const aiResetsOn = () => {
