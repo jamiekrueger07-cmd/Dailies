@@ -13,7 +13,9 @@ const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE
 const PAID_STATUSES = new Set(['active', 'trialing', 'past_due'])
 const PLUS_PRICES = new Set([Deno.env.get('STRIPE_PRICE_PLUS'), Deno.env.get('STRIPE_PRICE_PLUS_YEARLY')].filter(Boolean))
 
-async function syncSubscription(sub: Stripe.Subscription) {
+async function syncSubscription(evt: Stripe.Subscription, fallbackUserId?: string | null) {
+  // Always use Stripe's latest state, so a late or retried event can't roll the plan back.
+  const sub = await stripe.subscriptions.retrieve(evt.id)
   const customer = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
   const periodEnd = (sub as any).current_period_end ?? (sub.items?.data?.[0] as any)?.current_period_end ?? null
   const item = sub.items?.data?.[0] as any
@@ -27,11 +29,14 @@ async function syncSubscription(sub: Stripe.Subscription) {
     current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
   }
   if (sub.trial_end) update.trial_used = true // never reset, so the trial is once per account
-  const userId = sub.metadata?.user_id
-  const q = userId
-    ? admin.from('profiles').update(update).eq('id', userId)
-    : admin.from('profiles').update(update).eq('stripe_customer_id', customer)
-  const { error } = await q
+  const userId = sub.metadata?.user_id || fallbackUserId
+  const find = admin.from('profiles').select('id, stripe_subscription_id, subscription_status')
+  const { data: prof, error: findErr } = await (userId ? find.eq('id', userId) : find.eq('stripe_customer_id', customer)).maybeSingle()
+  if (findErr) throw findErr
+  if (!prof) return
+  // An extra or old subscription ending must not cancel the one that's still being paid for.
+  if (prof.stripe_subscription_id && prof.stripe_subscription_id !== sub.id && PAID_STATUSES.has(prof.subscription_status ?? '') && !PAID_STATUSES.has(sub.status)) return
+  const { error } = await admin.from('profiles').update(update).eq('id', prof.id)
   if (error) throw error
 }
 
@@ -47,7 +52,9 @@ Deno.serve(async (req) => {
 
   try {
     switch (event.type) {
-      case 'checkout.session.completed': {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded': {
+        // async_payment_succeeded = a slower payment method (like a bank debit) went through later
         const s = event.data.object as Stripe.Checkout.Session
         // one-time pack of extra AI scripts
         if (s.mode === 'payment' && s.metadata?.kind === 'topup' && s.payment_status === 'paid') {
@@ -63,8 +70,7 @@ Deno.serve(async (req) => {
         }
         if (s.subscription) {
           const sub = await stripe.subscriptions.retrieve(s.subscription as string)
-          if (!sub.metadata?.user_id && s.client_reference_id) sub.metadata = { ...sub.metadata, user_id: s.client_reference_id }
-          await syncSubscription(sub)
+          await syncSubscription(sub, s.client_reference_id)
         }
         break
       }
