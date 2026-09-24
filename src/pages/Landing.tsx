@@ -279,7 +279,7 @@ export function LandingPage() {
             <Link className="btn primary block lg" to={userId ? '/app/account' : '/signup?plan=pro'}>
               Try it free for {TRIAL_DAYS} days
             </Link>
-            <p className="muted tiny center">Includes {TRIAL_AI_SCRIPTS} AI scripts. Then {tierPriceText('pro', iv)}. Cancel anytime.</p>
+            <p className="muted tiny center">Trial includes {TRIAL_AI_SCRIPTS} AI scripts. Then {tierPriceText('pro', iv)}. Cancel anytime.</p>
           </div>
           <div className="plan">
             <div className="plan-title">Pro Plus</div>
@@ -292,7 +292,7 @@ export function LandingPage() {
             <Link className="btn block lg" to={userId ? '/app/account' : '/signup?plan=plus'}>
               Try it free for {TRIAL_DAYS} days
             </Link>
-            <p className="muted tiny center">Includes {TRIAL_AI_SCRIPTS} AI scripts. Then {tierPriceText('plus', iv)}. Cancel anytime.</p>
+            <p className="muted tiny center">Trial includes {TRIAL_AI_SCRIPTS} AI scripts. Then {tierPriceText('plus', iv)}. Cancel anytime.</p>
           </div>
         </div>
         <p className="muted small center topup-line">
