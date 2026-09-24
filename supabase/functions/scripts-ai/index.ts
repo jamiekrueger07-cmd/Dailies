@@ -101,7 +101,8 @@ Split it into one script per video the creator has to film. Rules:
 - Classify each line: "say" for spoken lines/dialogue/voiceover, "show" for actions, shots or b-roll, "text" for on-screen text, "beat" for section headings like "Hook" or "Step 2".
 - Put the opening line in "hook". Put any caption in "caption". Put general rules, do's and don'ts, links or product notes that apply to a script in "notes" (repeat shared rules on each script if short).
 - If the brief is one general concept with no separate scripts, return one script.
-- Ignore legal boilerplate, payment terms and contact details.`
+- Ignore legal boilerplate, payment terms and contact details.
+- If the creator added notes, follow them (e.g. leave out videos they say to skip).`
 
 // Step 1 of reading a brief: find every video in it. The brief comes in with numbered lines.
 const OUTLINE_TOOL = {
@@ -122,6 +123,7 @@ const OUTLINE_TOOL = {
           properties: {
             label: { type: 'string', description: 'How the brief labels it, e.g. "Warm-up 2", "Week 1 · Script 3"' },
             title: { type: 'string', description: 'The script title if the brief gives one, else empty' },
+            week: { type: 'integer', description: 'Which week of the brief this video is in (Week 2 -> 2). 1 for warm-ups, for videos before the first week heading, or when the brief has no weeks.' },
             start_line: { type: 'integer' },
             end_line: { type: 'integer', description: 'Last line that belongs to this video (its script, links, hashtags, directions)' },
           },
@@ -137,7 +139,9 @@ Find every separate video the creator has to make: warm-up videos, and each scri
 - A video can be a full written script, just an inspiration link with hashtags, or instructions ("follow the format in week 2"). Include all of them.
 - start_line/end_line must cover everything that belongs to that video: its label, title, links, directions, spoken script and hashtags. Don't include the repeated rules block or week headings.
 - shared_rules: the requirements repeated for all videos (e.g. "Send all videos to Jayden for approval before posting", caption style, font, lighting, "Must show the demo on screen"). Include each rule once.
-- Ignore payment terms, contracts and contact details.`
+- week: the week heading the video sits under ("Week 3" -> 3). Warm-ups and briefs without weeks are week 1.
+- Ignore payment terms, contracts and contact details.
+- If the creator added notes, follow them (e.g. leave out videos they say to skip).`
 
 // Step 2: turn one video into a ready-to-film script card, the way the creator's script desk does.
 const CARD_PROMPT = (brand: string) => `You are the creator's script desk for "${brand}". Turn ONE video from the brand's brief into a complete, ready-to-film script card, the way an experienced UGC producer would.
@@ -160,6 +164,7 @@ Fields:
 - format: format and length, e.g. "Talking head · ~60 sec" or "List overlays · ~30 sec" (length from spoken words at 2.5 words per second).
 - caption: if the brief gives a caption, use it verbatim. Otherwise write one short caption line in the creator's voice that fits the video, then the brief's hashtags verbatim.
 - notes: a single string, one item per line, each starting with "• ": "• The format: " plus one or two sentences on what the inspo does and how this version adapts it; "• Inspo: " plus the full URL; anything specific to this video from the brief (e.g. "Text first if you have any questions"); in case B "• Written from the inspo, not the brand's wording. Check it before filming."; then the brand rules.
+If the creator added their own notes, follow them where they apply to this video (setting, props, what to skip or add). They never change the brand's written spoken lines unless the note says to.
 Return exactly one script.`
 
 const WRITE_PROMPT = `You write short-form UGC video scripts for creators posting brand deals on TikTok, Instagram Reels and YouTube Shorts.
@@ -304,6 +309,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json()
     const brand = String(body.brand ?? 'the brand')
+    // The creator's own note that came with the brief ("skip the warm-ups", "film at the gym").
+    const notes = typeof body.notes === 'string' ? body.notes.trim().slice(0, 2000) : ''
+    const notesBlock = notes ? `\n\n<creator_notes>\n${notes}\n</creator_notes>` : ''
     const splitModel = Deno.env.get('ANTHROPIC_MODEL_SPLIT') ?? 'claude-haiku-4-5-20251001'
     const log = async (mode: string, n: number, model: string, inTok: number, outTok: number) => {
       const { error } = await admin.rpc('record_ai_run', { uid: user.id, run_mode: mode, n, run_model: model, in_tok: inTok, out_tok: outTok, cost: costUsd(model, inTok, outTok) })
@@ -345,13 +353,14 @@ Deno.serve(async (req) => {
       if (!text.trim()) return json({ error: 'Paste the brief or upload a file first.' }, 400)
       const lines = text.split('\n')
       const numbered = lines.map((l, i) => `${i + 1}| ${l}`).join('\n')
-      const { input, inTok, outTok } = await claude(splitModel, OUTLINE_PROMPT(brand), [{ type: 'text', text: `<brief>\n${numbered}\n</brief>\n\nList every video and the shared rules.` }], OUTLINE_TOOL, 4000)
+      const { input, inTok, outTok } = await claude(splitModel, OUTLINE_PROMPT(brand), [{ type: 'text', text: `<brief>\n${numbered}\n</brief>${notesBlock}\n\nList every video and the shared rules.` }], OUTLINE_TOOL, 4000)
       await finish(outlineRun, 0, splitModel, inTok, outTok)
       const videos = asList(input.videos)
         .map((v: any) => {
           const a = Math.max(1, Math.min(lines.length, Number(v.start_line) || 0))
           const b = Math.max(a, Math.min(lines.length, Number(v.end_line) || a))
-          return { label: String(v.label ?? '').slice(0, 80), title: String(v.title ?? '').slice(0, 140), text: lines.slice(a - 1, b).join('\n').trim() }
+          const week = Math.max(1, Math.min(12, Math.round(Number(v.week)) || 1))
+          return { label: String(v.label ?? '').slice(0, 80), title: String(v.title ?? '').slice(0, 140), week, text: lines.slice(a - 1, b).join('\n').trim() }
         })
         .filter((v: any) => v.text)
       const shared = asList(input.shared_rules).map((r: any) => String(r)).filter(Boolean)
@@ -382,6 +391,7 @@ Deno.serve(async (req) => {
           `Rules that apply to every video:\n${shared.length ? shared.map((r) => `- ${r}`).join('\n') : '(none given)'}`,
           refs.length ? `Inspo videos (cover images attached above, in this order):\n${refs.map((r, i) => `${i + 1}. ${urls[i]}\n   ${r.note}`).join('\n')}` : 'No inspo link for this video.',
           `<video>\n${text}\n</video>`,
+          ...(notes ? [`<creator_notes>\n${notes}\n</creator_notes>`] : []),
           'Turn this video into one script card and save it.',
         ].join('\n\n'),
       })
@@ -417,10 +427,10 @@ Deno.serve(async (req) => {
         if (pages > PDF_PAGE_LIMIT) return json({ error: `That PDF has ${pages} pages. The limit is ${PDF_PAGE_LIMIT}, so export just the script pages.` }, 413)
         content = [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: body.file.data } },
-          { type: 'text', text: 'Here is the brief. Split it into scripts and save them.' },
+          { type: 'text', text: `Here is the brief.${notesBlock}\n\nSplit it into scripts and save them.` },
         ]
       } else if (typeof body.text === 'string' && body.text.trim()) {
-        content = [{ type: 'text', text: `Here is the brief:\n\n<brief>\n${body.text.slice(0, 60_000)}\n</brief>\n\nSplit it into scripts and save them.` }]
+        content = [{ type: 'text', text: `Here is the brief:\n\n<brief>\n${body.text.slice(0, 60_000)}\n</brief>${notesBlock}\n\nSplit it into scripts and save them.` }]
       } else return json({ error: 'Paste the brief or upload a file first.' }, 400)
     } else if (body.mode === 'write') {
       const b = body.brief ?? {}
