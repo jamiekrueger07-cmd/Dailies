@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { backend } from '../lib/backend'
 import {
   AI_ALLOWANCE,
@@ -36,14 +37,15 @@ export function ProBadge() {
 }
 
 /** Monthly / yearly switch, shared by the upgrade sheet and the pricing section. */
-export function IntervalToggle({ value, onChange }: { value: Interval; onChange: (v: Interval) => void }) {
+export function IntervalToggle({ value, onChange, tiers = ['pro', 'plus'] }: { value: Interval; onChange: (v: Interval) => void; tiers?: Tier[] }) {
+  const save = Math.max(...tiers.map((t) => (t === 'plus' ? PLUS_YEARLY_SAVINGS : YEARLY_SAVINGS)))
   return (
     <div className="seg" role="radiogroup" aria-label="Billing">
       <button role="radio" aria-checked={value === 'month'} className={value === 'month' ? 'on' : ''} onClick={() => onChange('month')}>
         Monthly
       </button>
       <button role="radio" aria-checked={value === 'year'} className={value === 'year' ? 'on' : ''} onClick={() => onChange('year')}>
-        Yearly <span className="save">Save up to {Math.max(YEARLY_SAVINGS, PLUS_YEARLY_SAVINGS)}%</span>
+        Yearly <span className="save">{tiers.length > 1 ? 'Save up to' : 'Save'} {save}%</span>
       </button>
     </div>
   )
@@ -75,8 +77,26 @@ export function UpgradeSheet() {
   useEffect(() => {
     if (upgradeOpen) setIv(profile.interval ?? 'year')
   }, [upgradeOpen, profile.interval])
+  // Close on Escape or when the page changes (e.g. the Back button), and move focus into the sheet.
+  const loc = useLocation()
+  const first = useRef(loc.key)
+  useEffect(() => {
+    if (first.current !== loc.key) closeUpgrade()
+    first.current = loc.key
+  }, [loc.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const close = useRef(closeUpgrade)
+  close.current = closeUpgrade
+  useEffect(() => {
+    if (!upgradeOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close.current()
+    window.addEventListener('keydown', onKey)
+    sheetRef.current?.focus()
+    return () => window.removeEventListener('keydown', onKey)
+  }, [upgradeOpen])
   if (!upgradeOpen) return null
   const onPro = profile.plan === 'pro'
+  const trialing = profile.subscriptionStatus === 'trialing'
   const choices: Tier[] = onPro ? ['plus'] : ['pro', 'plus']
   const trial = !profile.trialUsed
   const price = tierPriceText(tier, interval)
@@ -101,13 +121,13 @@ export function UpgradeSheet() {
 
   return (
     <div className="sheet-backdrop" onClick={closeUpgrade}>
-      <div className="sheet" role="dialog" aria-modal="true" aria-label="Upgrade" onClick={(e) => e.stopPropagation()}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-label="Upgrade" tabIndex={-1} ref={sheetRef} onClick={(e) => e.stopPropagation()}>
         <button className="sheet-x" onClick={closeUpgrade} aria-label="Close">
           ×
         </button>
         <div className="eyebrow">{onPro ? 'Dailies Pro Plus' : 'Dailies Pro'}</div>
         <h2>{upgradeOpen}</h2>
-        <IntervalToggle value={interval} onChange={setIv} />
+        <IntervalToggle value={interval} onChange={setIv} tiers={choices} />
         <div className="tier-pick" role="radiogroup" aria-label="Plan">
           {choices.map((t) => (
             <button key={t} role="radio" aria-checked={tier === t} className={'tier' + (tier === t ? ' on' : '')} onClick={() => setTier(t)}>
@@ -131,7 +151,9 @@ export function UpgradeSheet() {
           {busy ? 'Opening checkout…' : onPro ? `Switch to Pro Plus, ${price}` : trial ? `Start ${TRIAL_DAYS}-day free trial` : `Get ${TIER_NAME[tier]} for ${price}`}
         </button>
         <p className="muted tiny center">
-          {onPro
+          {onPro && trialing
+            ? `Your free trial keeps going. When it ends you'll pay ${price} instead.`
+            : onPro
             ? "You'll be charged the difference for the rest of this billing period today."
             : trial
               ? `Free until ${inDays(TRIAL_DAYS)}, with ${TRIAL_AI_SCRIPTS} AI scripts to try. Then ${price} and your full AI allowance. Cancel before then and you won't be charged.`
