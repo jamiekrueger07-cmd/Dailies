@@ -1,11 +1,11 @@
 import { useState, type CSSProperties } from 'react'
 import { DealForm } from '../components/DealForm'
 import { ProBadge } from '../components/Upgrade'
-import { FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
+import { dealProblem, FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
 import { useApp } from '../state'
 
 export function DealsPage() {
-  const { deals, saveDeals, removeDeal, canAddDeal, lockedIds, isPro, openUpgrade } = useApp()
+  const { deals, saveDeals, removeDeal, canAddDeal, lockedIds, isPro, openUpgrade, flash } = useApp()
   const [editing, setEditing] = useState<Deal | null>(null)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
 
@@ -15,8 +15,11 @@ export function DealsPage() {
   }
   const save = async () => {
     if (!editing) return
-    const exists = deals.some((d) => d.id === editing.id)
-    const next = exists ? deals.map((d) => (d.id === editing.id ? editing : d)) : [...deals, { ...editing, name: editing.name.trim() || 'Untitled' }]
+    const clean = { ...editing, name: editing.name.trim() }
+    const problem = dealProblem(clean)
+    if (problem) return flash(problem)
+    const exists = deals.some((d) => d.id === clean.id)
+    const next = exists ? deals.map((d) => (d.id === clean.id ? clean : d)) : [...deals, clean]
     if (await saveDeals(next)) setEditing(null)
   }
   const patch = (id: string, p: Partial<Deal>) => saveDeals(deals.map((d) => (d.id === id ? { ...d, ...p } : d)))
@@ -49,7 +52,7 @@ export function DealsPage() {
             <button className="btn" onClick={() => setEditing(null)}>
               Cancel
             </button>
-            <button className="btn primary" onClick={save} disabled={editing.platforms.length === 0}>
+            <button className="btn primary" onClick={save}>
               Save
             </button>
           </div>
