@@ -536,3 +536,22 @@ drop trigger if exists on_auth_user_email_changed on auth.users;
 create trigger on_auth_user_email_changed after update of email on auth.users
   for each row when (old.email is distinct from new.email) execute function public.sync_profile_email();
 update public.profiles p set email = u.email from auth.users u where u.id = p.id and p.email is distinct from u.email;
+
+-- =====================================================================
+-- v9 (Sept 24): in-app feedback
+-- =====================================================================
+-- Notes from the "Send feedback" form. Only the send-feedback function (service role) writes or reads them,
+-- so there are no policies: signed-in users can't list anyone's notes, including their own.
+create table if not exists public.feedback (
+  id bigint generated always as identity primary key,
+  user_id uuid references auth.users (id) on delete set null,
+  email text,
+  plan text,
+  kind text not null check (kind in ('working', 'not', 'idea')),
+  message text not null check (char_length(message) between 1 and 2000),
+  page text,
+  created_at timestamptz not null default now()
+);
+alter table public.feedback enable row level security;
+revoke all on public.feedback from anon, authenticated;
+create index if not exists feedback_user_time on public.feedback (user_id, created_at desc);
