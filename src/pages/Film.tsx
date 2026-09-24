@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { addDays, nextStatus, statusLabel, today, uid, videosInWeek, weekLabel, weekStart, type Deal, type Video, type VideoStatus } from '../lib/model'
 import { useApp } from '../state'
@@ -25,10 +25,24 @@ function VideoLine({
   onDelete: () => void
 }) {
   const [draft, setDraft] = useState(video)
+  const [confirmDel, setConfirmDel] = useState(false)
+  // When the video changes elsewhere (e.g. "All filmed"), pick that up but keep anything being typed right now.
+  const last = useRef(video)
+  useEffect(() => {
+    const was = last.current
+    last.current = video
+    setDraft((d) => ({
+      ...video,
+      hook: d.hook !== was.hook ? d.hook : video.hook,
+      format: d.format !== was.format ? d.format : video.format,
+      notes: d.notes !== was.notes ? d.notes : video.notes,
+      revision: d.revision !== was.revision ? d.revision : video.revision,
+    }))
+  }, [video])
+  // Only send the field that changed, on top of the latest saved video, so nothing else gets reset.
   const commit = (p: Partial<Video>) => {
-    const next = { ...draft, ...p }
-    setDraft(next)
-    onChange(next)
+    setDraft((d) => ({ ...d, ...p }))
+    onChange({ ...video, ...p })
   }
   return (
     <div className={'vwrap' + (open ? ' open' : '')}>
@@ -38,6 +52,7 @@ function VideoLine({
         </button>
         <input
           className="vhook"
+          aria-label={`Video ${video.no} hook or concept`}
           value={draft.hook}
           placeholder="Hook / concept…"
           onChange={(e) => setDraft({ ...draft, hook: e.target.value })}
@@ -51,8 +66,13 @@ function VideoLine({
         <button className={`vstatus s-${video.status}`} onClick={() => commit({ status: nextStatus(video.status, deal.needsApproval) })} title="Tap to move it along">
           {statusLabel(video.status, deal.needsApproval)}
         </button>
-        <button className="vkill" onClick={onDelete} aria-label="Delete video">
-          ×
+        <button
+          className={'vkill' + (confirmDel ? ' confirm' : '')}
+          onClick={() => (confirmDel ? (setConfirmDel(false), onDelete()) : setConfirmDel(true))}
+          onBlur={() => setConfirmDel(false)}
+          aria-label={confirmDel ? 'Tap again to delete this video' : 'Delete video'}
+        >
+          {confirmDel ? 'Delete?' : '×'}
         </button>
       </div>
       {open && (
