@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import { backend } from '../lib/backend'
 import {
+  addDays,
   aiLeft,
   aiResetsOn,
   PDF_PAGE_LIMIT,
@@ -11,6 +12,9 @@ import {
   SCRIPT_LENGTHS,
   SCRIPT_TONES,
   STEP_KINDS,
+  parse,
+  today,
+  weekStart,
   type Deal,
   type Script,
   type ScriptDraft,
@@ -24,6 +28,33 @@ import { Tick } from './Today'
 import { Link } from 'react-router-dom'
 import { IconAi } from '../components/Brand'
 
+// ---------- weeks ----------
+const wkShort = (w: string) => parse(w).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+/** "Week of Sep 28 (this week)" */
+const wkName = (w: string, short = false) => {
+  const now = weekStart(today())
+  const tag = w === now ? ' (this week)' : w === addDays(now, 7) ? ' (next week)' : w === addDays(now, -7) ? ' (last week)' : ''
+  return `${short ? '' : 'Week of '}${wkShort(w)}${tag}`
+}
+/** Weeks to choose from: last week through ~10 weeks out, always including `keep`. */
+function weekChoices(keep: string[] = []): string[] {
+  const now = weekStart(today())
+  const set = new Set(Array.from({ length: 12 }, (_, i) => addDays(now, (i - 1) * 7)))
+  keep.forEach((w) => set.add(w))
+  return [...set].sort()
+}
+function WeekSelect({ value, onChange, label, id, short }: { value: string; onChange: (w: string) => void; label: string; id?: string; short?: boolean }) {
+  return (
+    <select id={id} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+      {weekChoices([value]).map((w) => (
+        <option key={w} value={w}>
+          {wkName(w, short)}
+        </option>
+      ))}
+    </select>
+  )
+}
+
 // ---------- one script, read mode ----------
 export function StepLine({ s }: { s: ScriptStep }) {
   if (s.kind === 'beat') return <div className="st-beat">{s.text}</div>
@@ -36,9 +67,10 @@ export function StepLine({ s }: { s: ScriptStep }) {
 }
 
 function ScriptCard({ sc, no, onEdit, defaultOpen = false }: { sc: Script; no: number | null; onEdit: () => void; defaultOpen?: boolean }) {
-  const { toggleScriptDone, dropScripts, flash } = useApp()
+  const { toggleScriptDone, dropScripts, flash, moveScript } = useApp()
   const [open, setOpen] = useState(defaultOpen)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [moving, setMoving] = useState(false)
   const copy = async (text: string, what: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -100,6 +132,9 @@ function ScriptCard({ sc, no, onEdit, defaultOpen = false }: { sc: Script; no: n
               {sc.done ? 'Mark not done' : 'Mark done'}
             </button>
             <div className="grow" />
+            <button className="btn small" onClick={() => setMoving(!moving)} aria-expanded={moving}>
+              Move
+            </button>
             <button className="btn small" onClick={onEdit}>
               Edit
             </button>
@@ -111,6 +146,19 @@ function ScriptCard({ sc, no, onEdit, defaultOpen = false }: { sc: Script; no: n
               {confirmDel ? 'Tap again to delete' : 'Delete'}
             </button>
           </div>
+          {moving && (
+            <label className="scr-move">
+              Move this script to
+              <WeekSelect
+                label="Move to week"
+                value={sc.weekStart}
+                onChange={(w) => {
+                  setMoving(false)
+                  moveScript(sc, w)
+                }}
+              />
+            </label>
+          )}
         </div>
       )}
     </div>
@@ -226,9 +274,18 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
   const [err, setErr] = useState('')
   const [progress, setProgress] = useState<{ done: number; total: number; waiting: boolean } | null>(null)
   const [preview, setPreview] = useState<number | null>(null)
+  // The creator's own note about the brief: the AI follows it, and it's saved on each card.
+  const [briefNotes, setBriefNotes] = useState('')
+  // Which week each draft goes in: week 1 of the brief lands on startWeek, week 2 the week after, and so on.
+  const [startWeek, setStartWeek] = useState(week)
+  const [meta, setMeta] = useState<{ i: number; w: number }[]>([])
+  const [moved, setMoved] = useState<Record<number, string>>({})
+  const weekOf = (k: number) => moved[meta[k]?.i] ?? addDays(startWeek, 7 * ((meta[k]?.w ?? 1) - 1))
 
   const oneShot = async (req: Parameters<typeof backend.aiScripts>[0]) => {
     const res = await backend.aiScripts(req)
+    setMeta(res.scripts.map((_, i) => ({ i, w: 1 })))
+    setMoved({})
     setDrafts(res.scripts)
     setNote(res.note ?? '')
     setPicked(new Set(res.scripts.map((_, i) => i)))
@@ -236,8 +293,9 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
 
   /** Read a brief like a script desk: find every video first, then turn each one into its own script card. */
   const readBrief = async (src: { text?: string; file?: { name: string; type: string; data: string } }) => {
-    const outline = await backend.briefOutline({ brand: deal.name, ...src })
-    if ('fallback' in outline) return oneShot({ mode: 'split', brand: deal.name, ...src })
+    const notes = briefNotes.trim() || undefined
+    const outline = await backend.briefOutline({ brand: deal.name, ...src, notes })
+    if ('fallback' in outline) return oneShot({ mode: 'split', brand: deal.name, ...src, notes })
     let videos = outline.videos
     const room = aiLeft(profile)
     let msg = ''
@@ -250,18 +308,21 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
     let done = 0
     setNote(msg)
     setDrafts([])
+    setMeta([])
+    setMoved({})
     setPicked(new Set())
     setProgress({ done: 0, total: videos.length, waiting: false })
     const show = () => {
-      const list = out.filter((d): d is ScriptDraft => !!d)
-      setDrafts(list)
-      setPicked(new Set(list.map((_, i) => i)))
+      const idx = out.map((d, i) => (d ? i : -1)).filter((i) => i >= 0)
+      setMeta(idx.map((i) => ({ i, w: videos[i].week ?? 1 })))
+      setDrafts(idx.map((i) => out[i]!))
+      setPicked(new Set(idx.map((_, k) => k)))
     }
     let stop = false
     const work = async (i: number) => {
       for (let attempt = 0; attempt < 5 && !stop; attempt++) {
         try {
-          out[i] = await backend.briefCard({ brand: deal.name, video: videos[i], shared: outline.shared, brief: outline.brief })
+          out[i] = await backend.briefCard({ brand: deal.name, video: videos[i], shared: outline.shared, brief: outline.brief, notes })
           return
         } catch (e: any) {
           if (e.code === 'RATE_LIMIT') {
@@ -324,12 +385,20 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
     }
   }
   const outOfAi = isPro && left <= 0
+  const chosenWeeks = drafts ? [...new Set(drafts.map((_, k) => k).filter((k) => picked.has(k)).map(weekOf))].sort() : []
   const save = async () => {
     if (!drafts) return
-    const chosen = drafts.filter((_, i) => picked.has(i))
-    await addScripts(deal.id, week, chosen, mode === 'ai' ? 'ai' : 'brief')
+    const note = mode === 'ai' ? '' : briefNotes.trim()
+    const byWeek = new Map<string, ScriptDraft[]>()
+    drafts.forEach((d, k) => {
+      if (!picked.has(k)) return
+      const w = weekOf(k)
+      const withNote = note ? { ...d, notes: `• Your note: ${note}${d.notes ? '\n' + d.notes : ''}` } : d
+      byWeek.set(w, [...(byWeek.get(w) ?? []), withNote])
+    })
+    for (const w of [...byWeek.keys()].sort()) await addScripts(deal.id, w, byWeek.get(w)!, mode === 'ai' ? 'ai' : 'brief')
     setDrafts(null)
-    onAdded?.(chosen.length)
+    onAdded?.(picked.size)
     onClose?.()
   }
   const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
@@ -479,6 +548,20 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
               <span className="muted tiny">The brand's brief or script doc. Up to 8 MB.</span>
             </label>
           )}
+          {(mode === 'paste' || mode === 'upload') && (
+            <label>
+              Your notes <span className="muted small">(optional)</span>
+              <textarea
+                id="brief-notes"
+                rows={3}
+                maxLength={2000}
+                value={briefNotes}
+                onChange={(e) => setBriefNotes(e.target.value)}
+                placeholder={'e.g. Skip the warm-ups. I film at the gym, not at home. Management wants these posted by Friday.'}
+              />
+              <span className="muted tiny">The AI follows these while reading the brief, and they're saved on each script card.</span>
+            </label>
+          )}
           {err && <div className="error">{err}</div>}
           <button
             className="btn primary block"
@@ -514,6 +597,13 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
               <span className="muted">Uncheck any you don't want. Tap Preview to read one. You can edit them after adding.</span>
             </p>
           )}
+          {drafts.length > 0 && (
+            <label className="draft-start">
+              {meta.some((m) => m.w > 1) ? 'Week 1 of the brief goes in' : 'Add them to'}
+              <WeekSelect id="draft-start" label="Starting week" value={startWeek} onChange={setStartWeek} />
+              {meta.some((m) => m.w > 1) && <span className="muted tiny">Week 2 goes in the week after, and so on. Change any script's week below.</span>}
+            </label>
+          )}
           {drafts.map((d, i) => (
             <div key={i} className="draft-wrap">
               <label className="draft">
@@ -530,6 +620,11 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
                   {preview === i ? 'Hide' : 'Preview'}
                 </button>
               </label>
+              {mode !== 'ai' && (
+                <div className="draft-week">
+                  <WeekSelect short label={`Week for ${d.title || 'this script'}`} value={weekOf(i)} onChange={(w) => setMoved((m) => ({ ...m, [meta[i].i]: w }))} />
+                </div>
+              )}
               {preview === i && (
                 <div className="draft-preview">
                   {d.steps.map((s, j) => (
@@ -550,7 +645,7 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
               Back
             </button>
             <button className="btn primary" onClick={save} disabled={!picked.size || !!progress}>
-              Add {picked.size} to this week
+              {chosenWeeks.length > 1 ? `Add ${picked.size} across ${chosenWeeks.length} weeks` : `Add ${picked.size} to the week of ${wkShort(chosenWeeks[0] ?? startWeek)}`}
             </button>
           </div>
         </div>
