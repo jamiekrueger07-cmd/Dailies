@@ -54,12 +54,18 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
             don't cancel before the trial ends, your card is charged for the plan you picked.
           </p>
           <p>
-            You can cancel anytime from your Account page. You keep your paid plan until the end of the period you already paid for. If you
-            switch plans partway through a period, the price difference is charged or credited right away.
+            You can cancel anytime from your Account page. Cancelling stops the next renewal, and you keep your paid plan until the end of the
+            period you already paid for.
           </p>
           <p>
-            Payments are non-refundable except where the law requires otherwise. If something went wrong with a charge, email <Mail /> and
-            we'll sort it out.
+            <b>All payments are final and non-refundable.</b> That includes partial months or years, time you didn't use, unused AI scripts,
+            top-ups, and a trial you forgot to cancel. The only exceptions are where the law requires a refund, or if we charged you by
+            mistake (for example, twice for the same thing). If that happens, email <Mail />.
+          </p>
+          <p>
+            Upgrading to Pro Plus starts a new billing period that day: you pay the Pro Plus price, less the unused part of your current plan.
+            Switching down to Pro takes effect right away, with no refund or credit. Yearly plans can't be switched to monthly partway through;
+            cancel, and pick monthly once the year ends.
           </p>
 
           <h3>AI scripts</h3>
