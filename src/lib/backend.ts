@@ -162,7 +162,7 @@ function friendly(e: any): Error {
   if (msg.includes('FREE_PLAN_LIMIT')) return new Error('The Free plan covers 2 brand deals. Upgrade to Pro to add more.')
   if (msg.includes('report_shares') && msg.includes('row-level security')) return new Error('Sharing reports is a Pro feature.')
   if (msg.includes('PRO_ONLY')) return new Error('The script helper is a Pro feature.')
-  if (msg.includes('AI_LIMIT')) return new Error("You've used all your AI scripts for this month.")
+  if (msg.includes('AI_LIMIT')) return new Error("You're out of AI scripts for now. Get more, or write your own for free.")
   return new Error(msg)
 }
 
