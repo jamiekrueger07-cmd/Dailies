@@ -7,7 +7,7 @@ import { AppProvider, useApp } from './state'
 import { UpgradeSheet } from './components/Upgrade'
 import { IconAi, IconDeals, IconFilm, IconReport, IconToday, Wordmark } from './components/Brand'
 import { LandingPage } from './pages/Landing'
-import { AuthPage } from './pages/Auth'
+import { AuthPage, ResetPasswordPage } from './pages/Auth'
 import { TodayPage } from './pages/Today'
 import { FilmPage } from './pages/Film'
 import { ReportPage } from './pages/Report'
@@ -145,10 +145,25 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/r/:token" element={<SharedReportPage />} />
           <Route path="/terms" element={<LegalPage kind="terms" />} />
           <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/app/*" element={<AppRoutes />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </AppProvider>
     </Router>
   </StrictMode>,
 )
+
+function NotFound() {
+  return (
+    <div className="auth">
+      <div className="auth-card">
+        <h1>Page not found</h1>
+        <p className="muted">That link doesn’t go anywhere. It may have a typo, or the page moved.</p>
+        <Link className="btn primary block lg" to="/">
+          Go to the homepage
+        </Link>
+      </div>
+    </div>
+  )
+}
