@@ -93,7 +93,8 @@ function Shell({ children }: { children: ReactNode }) {
 
 function AppRoutes() {
   const { userId, loading, deals } = useApp()
-  if (loading && !userId) return <div className="splash">Loading…</div>
+  // Wait for the brands to load too, so a link like /app/ai isn't bounced to the welcome screen on refresh.
+  if (loading && (!userId || deals.length === 0)) return <div className="splash">Loading…</div>
   if (!userId) return <Navigate to="/login" replace />
   if (deals.length === 0)
     return (
