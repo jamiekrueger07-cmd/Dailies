@@ -224,25 +224,91 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
   const [picked, setPicked] = useState<Set<number>>(new Set())
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [progress, setProgress] = useState<{ done: number; total: number; waiting: boolean } | null>(null)
+  const [preview, setPreview] = useState<number | null>(null)
+
+  const oneShot = async (req: Parameters<typeof backend.aiScripts>[0]) => {
+    const res = await backend.aiScripts(req)
+    setDrafts(res.scripts)
+    setNote(res.note ?? '')
+    setPicked(new Set(res.scripts.map((_, i) => i)))
+  }
+
+  /** Read a brief like a script desk: find every video first, then turn each one into its own script card. */
+  const readBrief = async (src: { text?: string; file?: { name: string; type: string; data: string } }) => {
+    const outline = await backend.briefOutline({ brand: deal.name, ...src })
+    if ('fallback' in outline) return oneShot({ mode: 'split', brand: deal.name, ...src })
+    let videos = outline.videos
+    const room = aiLeft(profile)
+    let msg = ''
+    if (videos.length > room) {
+      msg = `This brief has ${videos.length} videos. You have ${room} AI script${room === 1 ? '' : 's'} left, so here are the first ${room}.`
+      videos = videos.slice(0, room)
+    }
+    const out: (ScriptDraft | null)[] = videos.map(() => null)
+    const failed: string[] = []
+    let done = 0
+    setNote(msg)
+    setDrafts([])
+    setPicked(new Set())
+    setProgress({ done: 0, total: videos.length, waiting: false })
+    const show = () => {
+      const list = out.filter((d): d is ScriptDraft => !!d)
+      setDrafts(list)
+      setPicked(new Set(list.map((_, i) => i)))
+    }
+    let stop = false
+    const work = async (i: number) => {
+      for (let attempt = 0; attempt < 5 && !stop; attempt++) {
+        try {
+          out[i] = await backend.briefCard({ brand: deal.name, video: videos[i], shared: outline.shared })
+          return
+        } catch (e: any) {
+          if (e.code === 'RATE_LIMIT') {
+            // New AI accounts have a low per-minute limit: wait a bit and try again.
+            setProgress((p) => p && { ...p, waiting: true })
+            await new Promise((r) => setTimeout(r, 15000 + attempt * 10000))
+            setProgress((p) => p && { ...p, waiting: false })
+            continue
+          }
+          if (/out of AI scripts/i.test(e.message)) stop = true
+          failed.push(videos[i].label || `Video ${i + 1}`)
+          return
+        }
+      }
+      if (!out[i]) failed.push(videos[i].label || `Video ${i + 1}`)
+    }
+    // Two at a time keeps us under the AI's per-minute limit.
+    let next = 0
+    const lane = async () => {
+      while (next < videos.length && !stop) {
+        const i = next++
+        await work(i)
+        done++
+        setProgress((p) => p && { ...p, done })
+        show()
+        refreshProfile()
+      }
+    }
+    await Promise.all([lane(), lane()])
+    show()
+    if (failed.length) setNote((msg ? msg + ' ' : '') + `Couldn't format: ${failed.join(', ')}. Try those again by pasting just that part.`)
+  }
 
   const run = async () => {
     if (!isPro) return openUpgrade('Build scripts faster')
     setBusy(true)
     setErr('')
     try {
-      const res =
-        mode === 'ai'
-          ? await backend.aiScripts({ mode: 'write', brief })
-          : mode === 'paste'
-            ? await backend.aiScripts({ mode: 'split', brand: deal.name, text })
-            : await backend.aiScripts({ mode: 'split', brand: deal.name, ...upload! })
-      setDrafts(res.scripts)
-      setNote(res.note ?? '')
-      setPicked(new Set(res.scripts.map((_, i) => i)))
+      if (mode === 'ai') await oneShot({ mode: 'write', brief })
+      else if (mode === 'paste') await readBrief({ text })
+      else await readBrief(upload!)
     } catch (e: any) {
+      setDrafts(null)
       setErr(e.message || 'Something went wrong')
     } finally {
       setBusy(false)
+      setProgress(null)
       refreshProfile() // update the AI scripts left counter
     }
   }
@@ -419,32 +485,71 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
             onClick={run}
             disabled={busy || (mode === 'paste' && !text.trim()) || (mode === 'upload' && !upload) || (mode === 'ai' && !brief.product.trim())}
           >
-            {!isPro ? 'Unlock with Pro' : busy ? (mode === 'ai' ? 'Writing scripts…' : 'Reading the brief…') : mode === 'ai' ? `Write ${brief.count} script${brief.count === 1 ? '' : 's'}` : 'Split into scripts'}
+            {!isPro ? 'Unlock with Pro' : busy ? (mode === 'ai' ? 'Writing scripts…' : 'Finding the videos in the brief…') : mode === 'ai' ? `Write ${brief.count} script${brief.count === 1 ? '' : 's'}` : 'Split into scripts'}
           </button>
         </>
       )}
 
       {drafts && (
         <div className="drafts">
+          {progress && (
+            <div className="brief-progress" role="status">
+              <p className="small">
+                <b>
+                  {progress.done < progress.total ? `Formatting script ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…` : 'Finishing up…'}
+                </b>{' '}
+                <span className="muted">{progress.waiting ? 'The AI is busy, trying again in a few seconds.' : 'Each video in the brief becomes its own script card.'}</span>
+              </p>
+              <div className="bar">
+                <div className="bar-fill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
+              </div>
+            </div>
+          )}
           {note && <p className="note">{note}</p>}
-          <p className="small">
-            <b>{drafts.length} script{drafts.length === 1 ? '' : 's'} ready.</b> <span className="muted">Uncheck any you don't want. You can edit them after adding.</span>
-          </p>
+          {!progress && (
+            <p className="small">
+              <b>
+                {drafts.length} script{drafts.length === 1 ? '' : 's'} ready.
+              </b>{' '}
+              <span className="muted">Uncheck any you don't want. Tap Preview to read one. You can edit them after adding.</span>
+            </p>
+          )}
           {drafts.map((d, i) => (
-            <label key={i} className="draft">
-              <input type="checkbox" checked={picked.has(i)} onChange={() => setPicked((p) => (p.has(i) ? new Set([...p].filter((x) => x !== i)) : new Set([...p, i])))} />
-              <span>
-                <b>{d.title}</b>
-                {d.hook && <span className="muted small"> “{d.hook}”</span>}
-                <span className="muted tiny"> · {d.steps.length} lines</span>
-              </span>
-            </label>
+            <div key={i} className="draft-wrap">
+              <label className="draft">
+                <input type="checkbox" checked={picked.has(i)} onChange={() => setPicked((p) => (p.has(i) ? new Set([...p].filter((x) => x !== i)) : new Set([...p, i])))} />
+                <span>
+                  <b>{d.title}</b>
+                  {d.hook && <span className="muted small"> “{d.hook}”</span>}
+                  <span className="muted tiny">
+                    {' '}
+                    · {d.steps.filter((s) => s.kind !== 'beat').length} lines{d.format ? ` · ${d.format}` : ''}
+                  </span>
+                </span>
+                <button type="button" className="btn link small draft-peek" onClick={(e) => (e.preventDefault(), setPreview(preview === i ? null : i))}>
+                  {preview === i ? 'Hide' : 'Preview'}
+                </button>
+              </label>
+              {preview === i && (
+                <div className="draft-preview">
+                  {d.steps.map((s, j) => (
+                    <StepLine key={j} s={s} />
+                  ))}
+                  {d.caption && (
+                    <p className="small">
+                      <b>Caption:</b> {d.caption}
+                    </p>
+                  )}
+                  {d.notes && <p className="small draft-notes">{d.notes}</p>}
+                </div>
+              )}
+            </div>
           ))}
           <div className="onboard-actions">
-            <button className="btn" onClick={() => setDrafts(null)}>
+            <button className="btn" onClick={() => setDrafts(null)} disabled={!!progress}>
               Back
             </button>
-            <button className="btn primary" onClick={save} disabled={!picked.size}>
+            <button className="btn primary" onClick={save} disabled={!picked.size || !!progress}>
               Add {picked.size} to this week
             </button>
           </div>
