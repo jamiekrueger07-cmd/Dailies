@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
-import { AI_ALLOWANCE, FREE_DEAL_LIMIT, PRO_PRICE, PRO_PRICE_YEARLY, TOPUP_PRICE, TOPUP_SCRIPTS, TRIAL_DAYS, tierPriceText, type Interval } from '../lib/model'
+import { AI_ALLOWANCE, FREE_DEAL_LIMIT, PRO_PRICE, PRO_PRICE_YEARLY, TOPUP_PRICE, TOPUP_SCRIPTS, TRIAL_AI_SCRIPTS, TRIAL_DAYS, tierPriceText, type Interval } from '../lib/model'
 import { useApp } from '../state'
 import { IntervalToggle, PLUS_FEATURES, PriceLine, PRO_FEATURES, ProBadge } from '../components/Upgrade'
 import { Wordmark } from '../components/Brand'
@@ -62,7 +62,7 @@ const jump = (id: string) => (e: { preventDefault(): void }) => {
 const FAQ = [
   ['Who is Dailies for?', 'UGC creators and influencers posting for more than one brand at a time, especially deals with daily quotas across TikTok, Instagram, YouTube, Facebook and Snapchat.'],
   ['Is the Free plan actually free?', `Yes. Free covers ${FREE_DEAL_LIMIT} brand deals with the full daily checklist and film list. No card, no time limit.`],
-  ['How does the free trial work?', `Pro is free for ${TRIAL_DAYS} days. Cancel before the trial ends from your account and you're never charged. After that Pro is $${PRO_PRICE} a month, or $${PRO_PRICE_YEARLY} a year.`],
+  ['How does the free trial work?', `Pro is free for ${TRIAL_DAYS} days, with ${TRIAL_AI_SCRIPTS} AI scripts to try the writer. Cancel before the trial ends from your account and you're never charged. After that Pro is $${PRO_PRICE} a month, or $${PRO_PRICE_YEARLY} a year, and your full ${AI_ALLOWANCE.pro} AI scripts a month kick in.`],
   ['What counts as an AI script?', `Every script the AI writes for you, or pulls out of a brief you paste or upload, counts as one. Pro includes ${AI_ALLOWANCE.pro} a month and Pro Plus includes ${AI_ALLOWANCE.plus}. They reset on the 1st. If you run out, get ${TOPUP_SCRIPTS} more for $${TOPUP_PRICE}, and those never expire. Writing your own scripts is always free.`],
   ['What do brands see when I share a report?', 'A clean page for that brand and month: every video, every platform it went up on, and the links to the live posts. Your rates, notes and other brands stay private. They can save it as a PDF.'],
   ['What happens if I cancel Pro?', 'You keep everything you logged. Your first two brands stay tracked on Free, and the rest pause until you upgrade again.'],
@@ -113,13 +113,13 @@ export function LandingPage() {
 
       <header className="hero">
         <div className="hero-copy">
-          <div className="eyebrow">The post tracker for UGC creators</div>
+          <div className="eyebrow">Built for UGC creators</div>
           <h1>
-            Every post you owe. Every brand. <mark>Checked off.</mark>
+            Your ultimate <mark>UGC workspace.</mark>
           </h1>
           <p className="lede">
-            Three brands, four platforms and a daily quota turns into dozens of posts a week. Dailies builds your list every morning, so you just
-            post and tap. No more scrolling your own profile to figure out what you missed.
+            Every brand deal, every post you owe, every script you need to film, in one place. Dailies builds your posting list each morning, turns
+            brand briefs into ready-to-film scripts, and gives you proof of posting when it's time to get paid.
           </p>
           <div className="hero-cta">
             <Link className="btn primary lg" to={cta}>
@@ -208,7 +208,7 @@ export function LandingPage() {
       <section className="l-section">
         <div className="l-head">
           <div className="eyebrow">What's inside</div>
-          <h2>Built by a creator running real campaigns.</h2>
+          <h2>Everything your UGC deals need. One workspace.</h2>
         </div>
         <div className="features">
           <div className="feature">
@@ -279,7 +279,7 @@ export function LandingPage() {
             <Link className="btn primary block lg" to={userId ? '/app/account' : '/signup?plan=pro'}>
               Try it free for {TRIAL_DAYS} days
             </Link>
-            <p className="muted tiny center">Then {tierPriceText('pro', iv)}. Cancel anytime.</p>
+            <p className="muted tiny center">Includes {TRIAL_AI_SCRIPTS} AI scripts. Then {tierPriceText('pro', iv)}. Cancel anytime.</p>
           </div>
           <div className="plan">
             <div className="plan-title">Pro Plus</div>
@@ -292,7 +292,7 @@ export function LandingPage() {
             <Link className="btn block lg" to={userId ? '/app/account' : '/signup?plan=plus'}>
               Try it free for {TRIAL_DAYS} days
             </Link>
-            <p className="muted tiny center">Then {tierPriceText('plus', iv)}. Cancel anytime.</p>
+            <p className="muted tiny center">Includes {TRIAL_AI_SCRIPTS} AI scripts. Then {tierPriceText('plus', iv)}. Cancel anytime.</p>
           </div>
         </div>
         <p className="muted small center topup-line">
@@ -314,7 +314,7 @@ export function LandingPage() {
       </section>
 
       <section className="final">
-        <h2>Stop losing track of what you owe.</h2>
+        <h2>Run every brand deal from one UGC workspace.</h2>
         <Link className="btn lg" to={cta}>
           {ctaLabel}
         </Link>
