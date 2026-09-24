@@ -1,57 +1,11 @@
-import { useState, type CSSProperties } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AI_ALLOWANCE, FREE_DEAL_LIMIT, PRO_PRICE, PRO_PRICE_YEARLY, TOPUP_PRICE, TOPUP_SCRIPTS, TRIAL_AI_SCRIPTS, TRIAL_DAYS, tierPriceText, type Interval } from '../lib/model'
 import { useApp } from '../state'
 import { IntervalToggle, PLUS_FEATURES, PriceLine, PRO_FEATURES, ProBadge } from '../components/Upgrade'
 import { Wordmark } from '../components/Brand'
-import { Tick } from './Today'
-
-function DemoCard() {
-  const rows: { brand: string; color: string; vids: boolean[][] }[] = [
-    { brand: 'Luma Skin', color: '#E07B39', vids: [[true, true, true], [true, false, false]] },
-    { brand: 'Rally App', color: '#3B6FD9', vids: [[true, true, false]] },
-    { brand: 'Crumb Co.', color: '#2E9E6B', vids: [[false, false, false]] },
-  ]
-  const labels = ['TT', 'IG', 'YT']
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-  return (
-    <div className="demo" role="img" aria-label="Example of the Today checklist: 6 of 12 posts done across three brands">
-      <div className="demo-top">
-        <div>
-          <div className="demo-h">Today</div>
-          <div className="slug">
-            <span className="rec" aria-hidden="true" />
-            {today}
-          </div>
-        </div>
-        <div className="demo-count">
-          6 <span className="muted">/ 12</span>
-        </div>
-      </div>
-      <div className="bar">
-        <div className="bar-fill" style={{ width: '50%' }} />
-      </div>
-      {rows.map((r) => (
-        <div key={r.brand} className="demo-deal" style={{ '--brand': r.color } as CSSProperties}>
-          <b>{r.brand}</b>
-          {r.vids.map((v, i) => (
-            <div className="vid-row" key={i}>
-              <span className="vid-label">Vid {i + 1}</span>
-              <div className="pills">
-                {v.map((on, j) => (
-                  <span key={j} className={'pill' + (on ? ' on' : '')}>
-                    {on && <Tick />}
-                    {labels[j]}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  )
-}
+import shotToday from '../assets/shot-today.webp'
+import shotScript from '../assets/shot-script.webp'
 
 function HeroVisual() {
   return (
@@ -60,7 +14,14 @@ function HeroVisual() {
         <span className="hv-k">Brief read</span>
         <b>12 script cards ready</b>
       </div>
-      <DemoCard />
+      <div className="demo shot">
+        <img
+          src={shotToday}
+          width={390}
+          height={640}
+          alt="The Today screen in Dailies: 6 of 11 posts done, with one row per video and a button per platform, for made-up brands."
+        />
+      </div>
       <div className="hv-chip hv-b" aria-hidden="true">
         <span className="hv-k">Proof of posting</span>
         <b>100% of quota · Sept</b>
@@ -69,55 +30,20 @@ function HeroVisual() {
   )
 }
 
-// A made-up brand, built with the same pieces the app uses to show a script.
+// A real script card from the app, filled in for a made-up brand.
 function ExampleCard() {
-  const steps: [string, string, string][] = [
-    ['beat', '', 'Set the shot'],
-    ['show', 'Show', 'Bathroom counter, morning light, phone propped at eye level'],
-    ['text', 'On-screen', 'POV: your skincare shelf finally makes sense'],
-    ['beat', '', 'What you say'],
-    ['say', 'Say', '\u201cI used to have eleven products and no idea what order they went in.\u201d'],
-    ['show', 'Show', 'Slide the old bottles out of frame'],
-    ['say', 'Say', '\u201cNow it\u2019s three steps. Cleanse, the Luma serum, SPF. That\u2019s it.\u201d'],
-    ['show', 'Show', 'Close-up: two pumps of serum, pat it in'],
-    ['beat', '', 'End'],
-    ['say', 'Say', '\u201cThirty seconds and I\u2019m out the door.\u201d'],
-    ['text', 'On-screen', 'Link in bio for 20% off'],
-  ]
   return (
     <figure className="ex">
-      <div className="ex-card">
-        <div className="ex-top">
-          <span className="ex-brand">Luma Skin</span>
-          <span className="scr-meta muted tiny">Week 1 · Script 2 · 25–35 sec</span>
-        </div>
-        <div className="ex-title">The 7am shelf reset</div>
-        <div className="scr-hookbox">
-          <span className="st-k">Hook text</span>
-          POV: your skincare shelf finally makes sense
-        </div>
-        <div className="scr-steps">
-          {steps.map(([k, label, t], i) =>
-            k === 'beat' ? (
-              <div key={i} className="st-beat">{t}</div>
-            ) : (
-              <div key={i} className={`st st-${k}`}>
-                <span className="st-k">{label}</span>
-                <span className="st-t">{t}</span>
-              </div>
-            ),
-          )}
-        </div>
-        <div className="scr-caption">
-          <span className="st-k">Caption</span>
-          <p>three steps and done. that&apos;s the whole routine now #lumaskin #skincareroutine #ad</p>
-          <span className="st-k">Notes</span>
-          <p className="ex-notes">
-            {'\u2022 The format: POV hook on screen, quick shelf before and after, then talk to camera.\n\u2022 Inspo: clean counter, soft morning light, one product in hand.\n\u2022 Brand rules: say \u201cserum,\u201d not \u201ctreatment.\u201d Tag @lumaskin and use #ad.'}
-          </p>
-        </div>
+      <div className="ex-shot">
+        <img
+          src={shotScript}
+          width={468}
+          height={858}
+          loading="lazy"
+          alt="A script card in Dailies with the hook, the shots, what to say, on-screen text, the caption and notes, in filming order."
+        />
       </div>
-      <figcaption className="muted tiny">Example card. Luma Skin is a made-up brand.</figcaption>
+      <figcaption className="muted tiny">A real card from the app. Luma Skin is a made-up brand.</figcaption>
     </figure>
   )
 }
