@@ -51,15 +51,16 @@ interface AppState {
   saveDeals(deals: Deal[]): Promise<boolean>
   removeDeal(id: string): Promise<void>
   toggleCheck(c: Check): Promise<void>
-  putVideos(v: Video[]): Promise<void>
+  /** Resolves false (after undoing on screen and showing an error) when the save failed. */
+  putVideos(v: Video[]): Promise<boolean>
   dropVideos(ids: string[]): Promise<void>
   scripts: Script[]
-  putScripts(s: Script[]): Promise<void>
+  putScripts(s: Script[]): Promise<boolean>
   dropScripts(ids: string[]): Promise<void>
-  addScripts(dealId: string, week: string, drafts: ScriptDraft[], source: Script['source']): Promise<void>
+  addScripts(dealId: string, week: string, drafts: ScriptDraft[], source: Script['source'], opts?: { quiet?: boolean }): Promise<boolean>
   toggleScriptDone(s: Script): Promise<void>
-  /** Move a saved script (and its film-list video) to another week. */
-  moveScript(s: Script, week: string): Promise<void>
+  /** Move a saved script to another week (a filmed video goes with it; an unfilmed slot stays with its week). */
+  moveScript(s: Script, week: string): Promise<boolean>
   signOut(): Promise<void>
   upgradeOpen: string | null
   upgradeTier: Tier
@@ -85,6 +86,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [checks, setChecks_] = useState<Map<string, Check>>(new Map())
   const [videos, setVideos] = useState<Video[]>([])
   const [scripts, setScripts] = useState<Script[]>([])
+  // Always-fresh copies, so saves that run one after another (e.g. adding scripts to three weeks) build on each other
+  // instead of each starting from the list as it was when the button was pressed.
+  const videosRef = useRef<Video[]>([])
+  const scriptsRef = useRef<Script[]>([])
+  const commitVideos = (next: Video[]) => {
+    videosRef.current = next
+    setVideos(next)
+  }
+  const commitScripts = (next: Script[]) => {
+    scriptsRef.current = next
+    setScripts(next)
+  }
   const [toast, setToast] = useState<Toast | null>(null)
   const toastTimer = useRef<number | undefined>(undefined)
   const [upgradeOpen, setUpgradeOpen] = useState<string | null>(null)
@@ -110,8 +123,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setProfile(FREE)
         setDeals([])
         setChecks_(new Map())
-        setVideos([])
-        setScripts([])
+        commitVideos([])
+        commitScripts([])
         return
       }
       setUserId(u.id)
@@ -120,8 +133,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProfile(p)
       setDeals([...d.deals].sort((a, b) => a.sortOrder - b.sortOrder))
       setChecks_(new Map(d.checks.map((c) => [checkKey(c), c])))
-      setVideos([...d.videos].sort((a, b) => a.sortOrder - b.sortOrder))
-      setScripts([...(d.scripts ?? [])].sort((a, b) => a.sortOrder - b.sortOrder))
+      commitVideos([...d.videos].sort(bySort))
+      commitScripts([...(d.scripts ?? [])].sort(bySort))
     } catch (e) {
       console.error(e)
       flash('Could not load your data')
@@ -150,8 +163,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const isPlus = profile.plan === 'plus'
   const { trackedDeals, lockedIds } = useMemo(() => {
     if (isPro) return { trackedDeals: deals, lockedIds: new Set<string>() }
-    // Same order the server uses to decide which 2 deals stay tracked on Free.
-    const ranked = [...deals].sort(bySort)
+    // Same order the server uses to decide which 2 deals stay tracked on Free: oldest first.
+    // (Deals made in the preview have no createdAt, so they fall back to the list order.)
+    const byAge = (a: Deal, b: Deal) =>
+      a.createdAt && b.createdAt ? (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : bySort(a, b)
+    const ranked = [...deals].sort(byAge)
     const keepIds = new Set(ranked.slice(0, FREE_DEAL_LIMIT).map((d) => d.id))
     return { trackedDeals: deals.filter((d) => keepIds.has(d.id)), lockedIds: new Set(deals.filter((d) => !keepIds.has(d.id)).map((d) => d.id)) }
   }, [deals, isPro])
@@ -266,75 +282,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const putVideos = async (v: Video[]) => {
-    if (!userId || !v.length) return
-    const prev = videos
-    const m = new Map(videos.map((x) => [x.id, x]))
+  const putVideos = async (v: Video[]): Promise<boolean> => {
+    if (!userId || !v.length) return true
+    const prev = videosRef.current
+    const m = new Map(prev.map((x) => [x.id, x]))
     for (const x of v) m.set(x.id, x)
-    setVideos([...m.values()].sort((a, b) => a.sortOrder - b.sortOrder))
+    commitVideos([...m.values()].sort(bySort))
     try {
       await backend.putVideos(userId, v)
+      return true
     } catch (e) {
       console.error(e)
-      setVideos((cur) => restoreById(cur, prev, v.map((x) => x.id), bySort))
+      commitVideos(restoreById(videosRef.current, prev, v.map((x) => x.id), bySort))
       flash('Could not save')
+      return false
     }
   }
 
   const dropVideos = async (ids: string[]) => {
     if (!userId || !ids.length) return
-    const prev = videos
+    const prev = videosRef.current
     const s = new Set(ids)
-    setVideos(videos.filter((x) => !s.has(x.id)))
-    setScripts((cur) => cur.map((x) => (x.videoId && s.has(x.videoId) ? { ...x, videoId: null } : x)))
+    commitVideos(prev.filter((x) => !s.has(x.id)))
+    commitScripts(scriptsRef.current.map((x) => (x.videoId && s.has(x.videoId) ? { ...x, videoId: null } : x)))
     try {
       await backend.dropVideos(userId, ids)
     } catch (e) {
       console.error(e)
-      setVideos((cur) => restoreById(cur, prev, ids, bySort))
+      commitVideos(restoreById(videosRef.current, prev, ids, bySort))
       flash('Could not delete')
     }
   }
 
-  const putScripts = async (list: Script[]) => {
-    if (!userId || !list.length) return
-    const prev = scripts
-    const m = new Map(scripts.map((x) => [x.id, x]))
+  const putScripts = async (list: Script[]): Promise<boolean> => {
+    if (!userId || !list.length) return true
+    const prev = scriptsRef.current
+    const m = new Map(prev.map((x) => [x.id, x]))
     for (const x of list) m.set(x.id, x)
-    setScripts([...m.values()].sort((a, b) => a.sortOrder - b.sortOrder))
+    commitScripts([...m.values()].sort(bySort))
     try {
       await backend.putScripts(userId, list)
+      return true
     } catch (e: any) {
       console.error(e)
-      setScripts((cur) => restoreById(cur, prev, list.map((x) => x.id), bySort))
+      commitScripts(restoreById(scriptsRef.current, prev, list.map((x) => x.id), bySort))
       flash(e.message || 'Could not save the script')
+      return false
     }
   }
 
   const dropScripts = async (ids: string[]) => {
     if (!userId || !ids.length) return
-    const prev = scripts
+    const prev = scriptsRef.current
     const s = new Set(ids)
-    setScripts(scripts.filter((x) => !s.has(x.id)))
+    commitScripts(prev.filter((x) => !s.has(x.id)))
     try {
       await backend.dropScripts(userId, ids)
     } catch (e) {
       console.error(e)
-      setScripts((cur) => restoreById(cur, prev, ids, bySort))
+      commitScripts(restoreById(scriptsRef.current, prev, ids, bySort))
       flash('Could not delete')
     }
   }
 
+  const nextSort = (list: { sortOrder: number }[]) => list.reduce((m, x) => Math.max(m, x.sortOrder), -1) + 1
+  const lastNo = (dealId: string, week: string) =>
+    videosRef.current.filter((x) => x.dealId === dealId && x.weekStart === week).reduce((m, x) => Math.max(m, x.no), 0)
+
   // New scripts attach to that brand's film-list videos for the week that don't have a script yet,
   // in order. If there aren't enough videos, new ones are added so every script has a video.
-  const addScripts = async (dealId: string, week: string, drafts: ScriptDraft[], source: Script['source']) => {
-    if (!drafts.length) return
-    const taken = new Set(scripts.map((x) => x.videoId).filter(Boolean))
-    const weekVids = videos.filter((v) => v.dealId === dealId && v.weekStart === week).sort((a, b) => a.no - b.no)
+  const addScripts = async (dealId: string, week: string, drafts: ScriptDraft[], source: Script['source'], opts: { quiet?: boolean } = {}) => {
+    if (!drafts.length) return true
+    const vidsNow = videosRef.current
+    const taken = new Set(scriptsRef.current.map((x) => x.videoId).filter(Boolean))
+    const weekVids = vidsNow.filter((v) => v.dealId === dealId && v.weekStart === week).sort((a, b) => a.no - b.no)
     const free = weekVids.filter((v) => !taken.has(v.id))
     let maxNo = weekVids.reduce((m, v) => Math.max(m, v.no), 0)
-    let vOrder = videos.length
-    let sOrder = scripts.length
+    let vOrder = nextSort(vidsNow)
+    let sOrder = nextSort(scriptsRef.current)
     const newVids: Video[] = []
     const touched: Video[] = []
     const out: Script[] = drafts.map((d) => {
@@ -351,37 +376,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return { ...d, id: uid(), dealId, weekStart: week, videoId: v.id, done: false, source, sortOrder: sOrder++ }
     })
-    await putVideos([...newVids, ...touched])
-    await putScripts(out)
-    flash(`Added ${out.length} script${out.length === 1 ? '' : 's'}`)
+    if (!(await putVideos([...newVids, ...touched]))) return false
+    if (!(await putScripts(out))) return false
+    if (!opts.quiet) flash(`Added ${out.length} script${out.length === 1 ? '' : 's'}`)
+    return true
   }
 
   const moveScript = async (sc: Script, week: string) => {
-    if (week === sc.weekStart) return
-    const v = sc.videoId ? videos.find((x) => x.id === sc.videoId) : undefined
-    const sharedVideo = !!v && scripts.some((x) => x.id !== sc.id && x.videoId === v.id)
-    const vids: Video[] = []
-    let videoId = sc.videoId
-    if (v && sharedVideo) videoId = null // another script still uses that video, so leave it where it is
-    else if (v && v.weekStart !== week) {
-      const maxNo = videos.filter((x) => x.dealId === v.dealId && x.weekStart === week).reduce((m, x) => Math.max(m, x.no), 0)
-      vids.push({ ...v, weekStart: week, no: maxNo + 1 })
-      // Close the gap it leaves in the old week (1, 3 -> 1, 2).
-      videos
+    if (week === sc.weekStart) return true
+    const vidsNow = videosRef.current
+    const scrNow = scriptsRef.current
+    const v = sc.videoId ? vidsNow.find((x) => x.id === sc.videoId) : undefined
+    const shared = !!v && scrNow.some((x) => x.id !== sc.id && x.videoId === v.id)
+    const changes: Video[] = []
+    let videoId: string | null = null
+    if (v && !shared && v.weekStart === week) videoId = v.id
+    else if (v && !shared && v.status !== 'idea') {
+      // Already filmed: the video travels with its script, numbered after that week's videos.
+      changes.push({ ...v, weekStart: week, no: lastNo(v.dealId, week) + 1 })
+      vidsNow
         .filter((x) => x.dealId === v.dealId && x.weekStart === v.weekStart && x.id !== v.id)
         .sort((a, b) => a.no - b.no)
-        .forEach((x, i) => x.no !== i + 1 && vids.push({ ...x, no: i + 1 }))
+        .forEach((x, i) => x.no !== i + 1 && changes.push({ ...x, no: i + 1 }))
+      videoId = v.id
+    } else {
+      // Not filmed yet: the slot stays with its week's quota (we only clear the hook this script wrote on it),
+      // and the script takes an open slot in the new week, or a new one.
+      if (v && !shared && v.hook === (sc.hook || sc.title)) changes.push({ ...v, hook: '', format: v.format === sc.format ? '' : v.format })
+      const taken = new Set(scrNow.filter((x) => x.id !== sc.id).map((x) => x.videoId).filter(Boolean))
+      const open = vidsNow.filter((x) => x.dealId === sc.dealId && x.weekStart === week && !taken.has(x.id)).sort((a, b) => a.no - b.no)[0]
+      if (open) {
+        videoId = open.id
+        if (!open.hook) changes.push({ ...open, hook: sc.hook || sc.title, format: open.format || sc.format })
+      } else {
+        const nv: Video = { id: uid(), dealId: sc.dealId, weekStart: week, no: lastNo(sc.dealId, week) + 1, hook: sc.hook || sc.title, format: sc.format, notes: '', revision: '', status: 'idea', sortOrder: nextSort(vidsNow) }
+        changes.push(nv)
+        videoId = nv.id
+      }
     }
-    if (vids.length) await putVideos(vids)
-    await putScripts([{ ...sc, weekStart: week, videoId }])
+    if (!(await putVideos(changes))) return false
+    if (!(await putScripts([{ ...sc, weekStart: week, videoId }]))) return false
     flash(`Moved to the week of ${parse(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`)
+    return true
   }
 
   // Marking a script done marks its video filmed (and unmarking puts a just-filmed video back).
   const toggleScriptDone = async (sc: Script) => {
     const done = !sc.done
-    await putScripts([{ ...sc, done }])
-    const v = videos.find((x) => x.id === sc.videoId)
+    if (!(await putScripts([{ ...sc, done }]))) return
+    const v = videosRef.current.find((x) => x.id === sc.videoId)
     if (v && done && v.status === 'idea') await putVideos([{ ...v, status: 'filmed' }])
     if (v && !done && v.status === 'filmed') await putVideos([{ ...v, status: 'idea' }])
     flash(done ? `Script done · ${sc.title}` : 'Marked not done')
