@@ -25,14 +25,18 @@ const addDays = (s: string, n: number) => {
   return d.toISOString().slice(0, 10)
 }
 const weekStart = (s: string) => addDays(s, -((new Date(s + 'T00:00:00Z').getUTCDay() + 6) % 7))
-const isLive = (d: Deal, date: string) => !(d.status !== 'active' || date < d.start_date || (d.end_date && date > d.end_date))
+// Pausing only affects today and later (same as the app).
+const isLive = (d: Deal, date: string, now: string) => !(date < d.start_date || (d.end_date && date > d.end_date) || (d.status !== 'active' && date >= now))
 function videosOn(d: Deal, date: string) {
-  if (!isLive(d, date)) return 0
+  if (!isLive(d, date, date)) return 0
   if (d.quota_mode !== 'week') return d.videos_per_day
   const start = weekStart(date)
-  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i)).filter((x) => isLive(d, x))
+  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i)).filter((x) => isLive(d, x, date))
   if (!days.length) return 0
-  return Math.floor(d.videos_per_week / days.length) + (days.indexOf(date) < d.videos_per_week % days.length ? 1 : 0)
+  // Spread the week's videos evenly (3 a week -> Mon, Wed, Fri), same as the app.
+  const i = days.indexOf(date)
+  const n = d.videos_per_week
+  return Math.ceil(((i + 1) * n) / days.length) - Math.ceil((i * n) / days.length)
 }
 
 function localNow(tz: string) {
@@ -112,7 +116,7 @@ Deno.serve(async (req) => {
     if (now.hour < u.reminder_hour || u.last_reminder_on === now.date || !u.email) continue
 
     const [{ data: deals }, { data: checks }] = await Promise.all([
-      admin.from('deals').select('id,name,quota_mode,videos_per_day,videos_per_week,platforms,start_date,end_date,status').eq('user_id', u.id).order('sort_order'),
+      admin.from('deals').select('id,name,quota_mode,videos_per_day,videos_per_week,platforms,start_date,end_date,status').eq('user_id', u.id).order('sort_order').order('id'),
       admin.from('post_checks').select('deal_id,video_no,platform').eq('user_id', u.id).eq('date', now.date),
     ])
     const done = new Set((checks ?? []).map((c) => `${c.deal_id}|${c.video_no}|${c.platform}`))
