@@ -18,13 +18,15 @@ export interface Data {
 
 /** What the script helper is asked to do: split a brand's brief (pasted or uploaded), or write new scripts. */
 export type AiRequest =
-  | { mode: 'split'; brand: string; text?: string; file?: { name: string; type: string; data: string } }
+  | { mode: 'split'; brand: string; text?: string; file?: { name: string; type: string; data: string }; notes?: string }
   | { mode: 'write'; brief: WriteBrief }
 /** One video found in a brand's brief (step 1 of reading a brief). */
 export interface BriefVideo {
   label: string
   title: string
   text: string
+  /** Which week of the brief it's in (1 for warm-ups or briefs without weeks). */
+  week?: number
 }
 export type FeedbackKind = 'working' | 'not' | 'idea'
 export type BriefOutline = { videos: BriefVideo[]; shared: string[]; brief: string } | { fallback: true }
@@ -60,9 +62,9 @@ export interface Backend {
   dropScripts(userId: string, ids: string[]): Promise<void>
   aiScripts(req: AiRequest): Promise<AiResult>
   /** Reading a brief, step 1: find every video in it (free). fallback = read it the old one-shot way. */
-  briefOutline(req: { brand: string; text?: string; file?: { name: string; type: string; data: string } }): Promise<BriefOutline>
+  briefOutline(req: { brand: string; text?: string; file?: { name: string; type: string; data: string }; notes?: string }): Promise<BriefOutline>
   /** Reading a brief, step 2: turn one video into a script card (uses 1 AI script). Throws code RATE_LIMIT when the AI is busy. */
-  briefCard(req: { brand: string; video: BriefVideo; shared: string[]; brief?: string }): Promise<ScriptDraft>
+  briefCard(req: { brand: string; video: BriefVideo; shared: string[]; brief?: string; notes?: string }): Promise<ScriptDraft>
   startCheckout(interval: Interval, tier: Tier): Promise<void>
   buyTopup(): Promise<void>
   openBillingPortal(): Promise<void>
@@ -640,11 +642,29 @@ function preview(): Backend {
       const s = new Set(ids)
       set('scripts', get<Script[]>('scripts', []).filter((x) => !s.has(x.id)))
     },
-    async briefOutline() {
-      return { fallback: true } // the preview reads briefs the simple way
+    async briefOutline(req) {
+      // The preview reads pasted text only: a new video at each "Script N" / "Warm-up N", its week from the last "Week N" heading.
+      if (!req.text) return { fallback: true }
+      const videos: BriefVideo[] = []
+      let wk = 1
+      for (const line of req.text.split('\n')) {
+        const w = line.match(/^\s*week\s*(\d+)/i)
+        if (w && !/script/i.test(line)) {
+          wk = Number(w[1]) || 1
+          continue
+        }
+        const h = line.match(/^\s*((?:script|video|warm-?up)\s*\d*)/i)
+        if (h) videos.push({ label: (!/warm/i.test(h[1]) && /week/i.test(req.text) ? `Week ${wk} · ` : '') + h[1].trim(), title: '', text: line, week: /warm/i.test(h[1]) ? 1 : wk })
+        else if (videos.length) videos[videos.length - 1].text += '\n' + line
+      }
+      if (!videos.length) return { fallback: true }
+      return { videos, shared: [], brief: req.text }
     },
-    async briefCard() {
-      throw new Error('Not used in the preview.')
+    async briefCard(req) {
+      const res = await this.aiScripts({ mode: 'split', brand: req.brand, text: req.video.text })
+      const d = res.scripts[0]
+      if (!d) throw new Error("Couldn't turn that part into a script.")
+      return { ...d, title: d.title && !req.video.label.toLowerCase().endsWith(d.title.toLowerCase()) ? `${req.video.label}: ${d.title}` : req.video.label, notes: [req.notes ? `(Preview) Followed your note: ${req.notes}` : '', d.notes].filter(Boolean).join('\n') }
     },
     async aiScripts(req) {
       // same allowance rules as the live scripts-ai function
