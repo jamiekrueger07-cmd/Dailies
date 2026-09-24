@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { backend } from '../lib/backend'
-import { AI_ALLOWANCE, aiLeft, aiResetsOn, FREE_DEAL_LIMIT, hourLabel, planName, TOPUP_PRICE, TOPUP_SCRIPTS, tierPriceText, type Deal, type Tier } from '../lib/model'
+import { AI_ALLOWANCE, aiAllowance, aiLeft, aiResetsOn, FREE_DEAL_LIMIT, hourLabel, planName, TOPUP_PRICE, TOPUP_SCRIPTS, tierPriceText, type Deal, type Tier } from '../lib/model'
 import { useApp } from '../state'
 import { PENDING_TIER_KEY, PRO_FEATURES } from '../components/Upgrade'
 import { PENDING_KEY } from './Onboarding'
@@ -90,7 +90,7 @@ export function AccountPage() {
   const { email, isPro, profile, openUpgrade, signOut, flash, saveSettings, refreshProfile } = useApp()
   const [buying, setBuying] = useState(false)
   const left = aiLeft(profile)
-  const allowance = AI_ALLOWANCE[profile.plan]
+  const allowance = aiAllowance(profile)
   const usedOfMonth = Math.min(profile.aiUsed, allowance)
   const buyMore = async () => {
     setBuying(true)
@@ -204,7 +204,9 @@ export function AccountPage() {
             <div className="bar-fill" style={{ width: `${allowance ? (usedOfMonth / allowance) * 100 : 0}%` }} />
           </div>
           <p className="muted small">
-            {usedOfMonth} of {allowance} used this month · resets {aiResetsOn()}
+            {profile.subscriptionStatus === 'trialing'
+              ? <>{usedOfMonth} of {allowance} free-trial scripts used · your full {AI_ALLOWANCE[profile.plan]} a month starts when the trial ends</>
+              : <>{usedOfMonth} of {allowance} used this month · resets {aiResetsOn()}</>}
             {profile.aiBonus > 0 && <> · plus {profile.aiBonus} extra that never expire</>}
           </p>
           <p className="muted tiny">Every script the AI writes or pulls out of a brief counts as 1. Writing your own is always free.</p>
