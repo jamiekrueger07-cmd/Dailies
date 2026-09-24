@@ -79,6 +79,16 @@ Deno.serve(async (req) => {
       case 'customer.subscription.deleted':
         await syncSubscription(event.data.object as Stripe.Subscription)
         break
+      case 'customer.deleted': {
+        // The customer was removed in Stripe: forget it so their next checkout makes a new one.
+        const c = event.data.object as Stripe.Customer
+        const { error } = await admin
+          .from('profiles')
+          .update({ stripe_customer_id: null, stripe_subscription_id: null, plan: 'free', subscription_status: null })
+          .eq('stripe_customer_id', c.id)
+        if (error) throw error
+        break
+      }
     }
     return new Response(JSON.stringify({ received: true }), { headers: { 'Content-Type': 'application/json' } })
   } catch (e) {
