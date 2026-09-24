@@ -261,7 +261,7 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
     const work = async (i: number) => {
       for (let attempt = 0; attempt < 5 && !stop; attempt++) {
         try {
-          out[i] = await backend.briefCard({ brand: deal.name, video: videos[i], shared: outline.shared })
+          out[i] = await backend.briefCard({ brand: deal.name, video: videos[i], shared: outline.shared, brief: outline.brief })
           return
         } catch (e: any) {
           if (e.code === 'RATE_LIMIT') {
@@ -498,7 +498,7 @@ export function AiWriter({ deal, week, onClose, onAdded }: { deal: Deal; week: s
                 <b>
                   {progress.done < progress.total ? `Formatting script ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…` : 'Finishing up…'}
                 </b>{' '}
-                <span className="muted">{progress.waiting ? 'The AI is busy, trying again in a few seconds.' : 'Each video in the brief becomes its own script card.'}</span>
+                <span className="muted">{progress.waiting ? 'The AI is busy, trying again in a few seconds.' : 'Opening each inspo link and writing its script card.'}</span>
               </p>
               <div className="bar">
                 <div className="bar-fill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
