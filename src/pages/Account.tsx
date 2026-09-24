@@ -158,7 +158,7 @@ export function AccountPage() {
             <p className="muted small">
               {isPro
                 ? profile.subscriptionStatus === 'past_due'
-                  ? 'Your last payment did not go through. Update your card to keep Pro.'
+                  ? 'Your last payment didn’t go through. Update your card in Manage billing to keep your plan and get your monthly AI scripts back.'
                   : trialEnds
                     ? `Trial ends ${trialEnds}, then ${priceText}. Cancel before then and you won't be charged.`
                     : renews
