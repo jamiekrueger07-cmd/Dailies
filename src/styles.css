@@ -655,3 +655,21 @@ button.vid-label:hover { color: var(--ink); }
 @media (min-width: 1400px) {
   .page { padding-inline: 56px; }
 }
+
+/* ---------- v9: fill the whole screen on a computer ---------- */
+@media (min-width: 1024px) {
+  .landing { max-width: none; padding-inline: clamp(24px, 3vw, 64px); }
+  .hero { grid-template-columns: 1.15fr 0.85fr; gap: clamp(48px, 6vw, 120px); padding-block: 64px 88px; }
+  .hero h1 { font-size: clamp(56px, 5.4vw, 96px); }
+  .lede { font-size: 20px; max-width: 36em; }
+  .demo { max-width: 420px; }
+  .l-head { max-width: 760px; }
+  .plans-3 { max-width: none; }
+  .faq { max-width: none; }
+  .faq details p { max-width: 80ch; }
+  .page { max-width: none; }
+  .ai-page { max-width: 1400px; }
+}
+@media (min-width: 1600px) {
+  .features { grid-template-columns: repeat(3, 1fr); gap: 36px 56px; }
+}
