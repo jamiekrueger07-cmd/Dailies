@@ -127,7 +127,8 @@ export function UpgradeSheet() {
         </button>
         <div className="eyebrow">{onPro ? 'Dailies Pro Plus' : 'Dailies Pro'}</div>
         <h2>{upgradeOpen}</h2>
-        <IntervalToggle value={interval} onChange={setIv} tiers={choices} />
+        {/* Yearly members stay yearly: switching to monthly mid-year would mean refunding the rest of the year. */}
+        {!(profile.plan !== 'free' && profile.interval === 'year') && <IntervalToggle value={interval} onChange={setIv} tiers={choices} />}
         <div className="tier-pick" role="radiogroup" aria-label="Plan">
           {choices.map((t) => (
             <button key={t} role="radio" aria-checked={tier === t} className={'tier' + (tier === t ? ' on' : '')} onClick={() => setTier(t)}>
@@ -154,10 +155,10 @@ export function UpgradeSheet() {
           {onPro && trialing
             ? `Your free trial keeps going. When it ends you'll pay ${price} instead.`
             : onPro
-            ? "You'll be charged the difference for the rest of this billing period today."
+            ? "You'll pay today, less the unused part of your Pro plan, and your billing date moves to today. Payments are non-refundable."
             : trial
               ? `Free until ${inDays(TRIAL_DAYS)}, with ${TRIAL_AI_SCRIPTS} AI scripts to try. Then ${price} and your full AI allowance. Cancel before then and you won't be charged.`
-              : 'Cancel anytime from your account.'}
+              : 'Cancel anytime from your account. Payments are non-refundable.'}
           {backend.mode === 'preview' ? ' Preview: no real charge.' : ' Payments are handled by Stripe.'}
         </p>
       </div>
