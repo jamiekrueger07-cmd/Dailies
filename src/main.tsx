@@ -5,6 +5,7 @@ import './styles.css'
 import { backend } from './lib/backend'
 import { AppProvider, useApp } from './state'
 import { UpgradeSheet } from './components/Upgrade'
+import { FeedbackButton } from './components/Feedback'
 import { IconAi, IconDeals, IconFilm, IconReport, IconToday, Wordmark } from './components/Brand'
 import { LandingPage } from './pages/Landing'
 import { AuthPage, ResetPasswordPage } from './pages/Auth'
@@ -59,6 +60,7 @@ function Shell({ children }: { children: ReactNode }) {
             </NavLink>
           ))}
         </nav>
+        <FeedbackButton className="side-feedback" />
         <NavLink to="/app/account" className="side-account">
           <span className="side-plan">{planLabel}</span>
           <span className="side-email">{email}</span>
