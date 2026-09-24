@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type CSSProperties, type TouchEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type TouchEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
   addDays,
@@ -132,10 +132,29 @@ function VideoRow({ row }: { row: Row }) {
 export function TodayPage() {
   const { trackedDeals: deals, checks, videos } = useApp()
   const [date, setDate] = useState(today())
-  const isToday = date === today()
-  const rows = useMemo(() => rowsFor(deals, checks, date), [deals, checks, date])
-  const missed = useMemo(() => missedRows(deals, checks), [deals, checks])
-  const run = useMemo(() => streak(deals, checks), [deals, checks])
+  // If the app stays open past midnight, roll over to the new day (and refresh missed posts and the streak).
+  const [day, setDay] = useState(today())
+  useEffect(() => {
+    const check = () => {
+      const t = today()
+      setDay((d) => {
+        if (d !== t) setDate((cur) => (cur === d ? t : cur))
+        return t
+      })
+    }
+    const id = window.setInterval(check, 60_000)
+    document.addEventListener('visibilitychange', check)
+    window.addEventListener('focus', check)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', check)
+      window.removeEventListener('focus', check)
+    }
+  }, [])
+  const isToday = date === day
+  const rows = useMemo(() => rowsFor(deals, checks, date), [deals, checks, date, day])
+  const missed = useMemo(() => missedRows(deals, checks), [deals, checks, day])
+  const run = useMemo(() => streak(deals, checks), [deals, checks, day])
   const week = useMemo(() => weekDays(date), [date])
   const owed = rows.reduce((n, r) => n + r.platforms.length, 0)
   const done = rows.reduce((n, r) => n + r.posted, 0)
