@@ -14,12 +14,24 @@ export const FEEDBACK_MAX = 2000
 /** A "Send feedback" button that opens a small form. Goes straight to the person building Dailies. */
 export function FeedbackButton({ className = 'btn', label = 'Send feedback' }: { className?: string; label?: string }) {
   const [open, setOpen] = useState(false)
+  const btn = useRef<HTMLButtonElement>(null)
+  const close = () => {
+    setOpen(false)
+    btn.current?.focus() // back to where the user was
+  }
+  // Close when the page changes (e.g. the Back button).
+  const { key } = useLocation()
+  const firstKey = useRef(key)
+  useEffect(() => {
+    if (firstKey.current !== key) setOpen(false)
+    firstKey.current = key
+  }, [key])
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>
+      <button type="button" ref={btn} className={className} onClick={() => setOpen(true)}>
         {label}
       </button>
-      {open && createPortal(<FeedbackSheet onClose={() => setOpen(false)} />, document.body)}
+      {open && createPortal(<FeedbackSheet onClose={close} />, document.body)}
     </>
   )
 }
@@ -33,11 +45,29 @@ function FeedbackSheet({ onClose }: { onClose: () => void }) {
   const [err, setErr] = useState('')
   const [sent, setSent] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
+  const sheet = useRef<HTMLDivElement>(null)
   const close = useRef(onClose)
   close.current = onClose
+  // Only a click that starts AND ends on the dark backdrop closes it (dragging a text selection out doesn't).
+  const downOnBackdrop = useRef(false)
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close.current()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return close.current()
+      if (e.key !== 'Tab' || !sheet.current) return
+      // Keep Tab inside the form while it's open.
+      const items = [...sheet.current.querySelectorAll<HTMLElement>('button:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])')]
+      if (!items.length) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
     window.addEventListener('keydown', onKey)
     box.current?.focus()
     return () => window.removeEventListener('keydown', onKey)
@@ -60,8 +90,15 @@ function FeedbackSheet({ onClose }: { onClose: () => void }) {
 
   const hint = KINDS.find((k) => k.id === kind)!.hint
   return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet fb-sheet" role="dialog" aria-modal="true" aria-labelledby="fb-title" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="sheet-backdrop"
+      onMouseDown={(e) => (downOnBackdrop.current = e.target === e.currentTarget)}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && downOnBackdrop.current) onClose()
+        downOnBackdrop.current = false
+      }}
+    >
+      <div className="sheet fb-sheet" ref={sheet} role="dialog" aria-modal="true" aria-labelledby="fb-title">
         <button className="sheet-x" onClick={onClose} aria-label="Close">
           ×
         </button>
@@ -102,8 +139,8 @@ function FeedbackSheet({ onClose }: { onClose: () => void }) {
               />
             </label>
             {text.length > FEEDBACK_MAX - 200 && (
-              <p className="muted tiny fb-count">
-                {text.length} / {FEEDBACK_MAX}
+              <p className="muted tiny fb-count" aria-live="polite">
+                {text.length >= FEEDBACK_MAX ? `That's the limit (${FEEDBACK_MAX} characters). Anything past it was cut off.` : `${text.length} / ${FEEDBACK_MAX}`}
               </p>
             )}
             {err && <p className="error">{err}</p>}
