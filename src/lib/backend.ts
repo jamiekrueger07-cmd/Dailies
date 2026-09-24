@@ -20,6 +20,13 @@ export interface Data {
 export type AiRequest =
   | { mode: 'split'; brand: string; text?: string; file?: { name: string; type: string; data: string } }
   | { mode: 'write'; brief: WriteBrief }
+/** One video found in a brand's brief (step 1 of reading a brief). */
+export interface BriefVideo {
+  label: string
+  title: string
+  text: string
+}
+export type BriefOutline = { videos: BriefVideo[]; shared: string[] } | { fallback: true }
 /** note is set when fewer scripts came back than the brief had, because the user ran out of AI scripts. */
 export interface AiResult {
   scripts: ScriptDraft[]
@@ -49,6 +56,10 @@ export interface Backend {
   putScripts(userId: string, s: Script[]): Promise<void>
   dropScripts(userId: string, ids: string[]): Promise<void>
   aiScripts(req: AiRequest): Promise<AiResult>
+  /** Reading a brief, step 1: find every video in it (free). fallback = read it the old one-shot way. */
+  briefOutline(req: { brand: string; text?: string; file?: { name: string; type: string; data: string } }): Promise<BriefOutline>
+  /** Reading a brief, step 2: turn one video into a script card (uses 1 AI script). Throws code RATE_LIMIT when the AI is busy. */
+  briefCard(req: { brand: string; video: BriefVideo; shared: string[] }): Promise<ScriptDraft>
   startCheckout(interval: Interval, tier: Tier): Promise<void>
   buyTopup(): Promise<void>
   openBillingPortal(): Promise<void>
@@ -156,6 +167,22 @@ const scriptToRow = (x: Script, user_id: string) => ({
   source: x.source,
   sort_order: x.sortOrder,
 })
+
+/** Calls the scripts-ai server function; turns its error codes into friendly messages. */
+async function invokeAiWith(sb: any, body: unknown) {
+  const { data, error } = await sb.functions.invoke('scripts-ai', { body })
+  if (error) {
+    let msg = error.message
+    try {
+      msg = (await (error as any).context?.json())?.error ?? msg
+    } catch {
+      /* keep the generic message */
+    }
+    if (msg === 'RATE_LIMIT') throw Object.assign(new Error('The AI is busy, retrying…'), { code: 'RATE_LIMIT' })
+    throw friendly(new Error(msg))
+  }
+  return data
+}
 
 function friendly(e: any): Error {
   const msg: string = e?.message ?? String(e)
@@ -339,6 +366,17 @@ function cloud(sb: SupabaseClient): Backend {
       if (!ids.length) return
       const { error } = await sb.from('scripts').delete().eq('user_id', userId).in('id', ids)
       if (error) throw friendly(error)
+    },
+    async briefOutline(req) {
+      const data = await invokeAiWith(sb, { mode: 'outline', ...req })
+      if (data?.fallback) return { fallback: true }
+      return { videos: data.videos as BriefVideo[], shared: (data.shared ?? []) as string[] }
+    },
+    async briefCard(req) {
+      const data = await invokeAiWith(sb, { mode: 'card', ...req })
+      const d = data?.scripts?.[0]
+      if (!d) throw new Error("Couldn't turn that part into a script.")
+      return d as ScriptDraft
     },
     async aiScripts(req) {
       const { data, error } = await sb.functions.invoke('scripts-ai', { body: req })
@@ -556,6 +594,12 @@ function preview(): Backend {
     async dropScripts(_u, ids) {
       const s = new Set(ids)
       set('scripts', get<Script[]>('scripts', []).filter((x) => !s.has(x.id)))
+    },
+    async briefOutline() {
+      return { fallback: true } // the preview reads briefs the simple way
+    },
+    async briefCard() {
+      throw new Error('Not used in the preview.')
     },
     async aiScripts(req) {
       // same allowance rules as the live scripts-ai function
