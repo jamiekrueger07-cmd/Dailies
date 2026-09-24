@@ -94,6 +94,9 @@ Deno.serve(async (req) => {
           await stripe.subscriptions.update(sub.id, {
             items: [{ id: item.id, price }],
             proration_behavior: downgrade ? 'none' : 'always_invoice',
+            // Going up starts a fresh billing period today: they pay the full new price minus what's left of the old
+            // one. (Otherwise upgrading on the last day costs cents but unlocks Plus's whole monthly allowance.)
+            ...(!downgrade && sub.status === 'active' ? { billing_cycle_anchor: 'now' as const } : {}),
             payment_behavior: 'error_if_incomplete',
             metadata: { ...sub.metadata, user_id: user.id },
           })
