@@ -452,3 +452,87 @@ select cron.schedule('dailies-send-reminders', '5 * * * *', $cron$
     timeout_milliseconds := 60000
   )
 $cron$);
+
+-- =====================================================================
+-- v8 (Sept 24): second bug hunt
+-- =====================================================================
+
+-- 1. Free plan: only the first 2 deals (by sort order, then id — same order as the app) accept new posts,
+--    videos and scripts. Stops "start a trial, add 50 deals, cancel, keep tracking them all".
+create or replace function public.deal_writable(p_deal uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.deals d join public.profiles p on p.id = d.user_id
+    where d.id = p_deal and d.user_id = auth.uid()
+      and (p.plan in ('pro', 'plus')
+           or d.id in (select x.id from public.deals x where x.user_id = d.user_id order by x.sort_order, x.id limit 2))
+  )
+$$;
+revoke all on function public.deal_writable(uuid) from public, anon;
+grant execute on function public.deal_writable(uuid) to authenticated;
+
+drop policy if exists "own checks" on public.post_checks;
+create policy "own checks" on public.post_checks for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id and public.deal_writable(deal_id));
+drop policy if exists "own videos" on public.videos;
+create policy "own videos" on public.videos for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id and public.deal_writable(deal_id));
+drop policy if exists "own scripts" on public.scripts;
+create policy "own scripts" on public.scripts for all using (auth.uid() = user_id)
+  with check (auth.uid() = user_id and public.deal_writable(deal_id));
+
+-- 2. A failed payment (past_due) keeps the plan while Stripe retries, but no new monthly AI scripts until it's paid.
+create or replace function public.ai_allowance_now(p text, status text) returns int
+language sql immutable as $$
+  select case when status = 'past_due' then 0
+              when status = 'trialing' then least(5, public.ai_allowance(p))
+              else public.ai_allowance(p) end
+$$;
+
+-- 3. Closing an AI run only ever happens once, so a retry can't refund scripts twice.
+alter table public.ai_runs add column if not exists finished boolean not null default false;
+create or replace function public.finish_ai_run(rid bigint, n int, run_model text, in_tok int, out_tok int, cost numeric) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  r record;
+  back int;
+  back_bonus int;
+begin
+  select * into r from public.ai_runs where id = rid for update;
+  if not found or r.finished then return; end if;
+  back := greatest(0, r.scripts - greatest(0, n));
+  back_bonus := least(r.from_bonus, back);
+  if back_bonus > 0 then update public.profiles set ai_bonus = ai_bonus + back_bonus where id = r.user_id; end if;
+  update public.ai_runs set scripts = r.scripts - back, from_bonus = r.from_bonus - back_bonus, finished = true,
+    model = coalesce(run_model, model), input_tokens = coalesce(in_tok, input_tokens), output_tokens = coalesce(out_tok, output_tokens), cost_usd = coalesce(cost, cost_usd)
+  where id = rid;
+end $$;
+revoke all on function public.finish_ai_run(bigint, int, text, int, int, numeric) from public, anon, authenticated;
+
+-- 4. Reading a brief is free but capped at 15 an hour. Claim the slot BEFORE calling the AI (locked), so
+--    parallel requests can't slip past the cap. Returns the run id, or null when the cap is reached.
+create or replace function public.claim_outline(uid uuid) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  rid bigint;
+begin
+  perform 1 from public.profiles where id = uid for update;
+  if (select count(*) from public.ai_runs where user_id = uid and mode = 'outline' and created_at > now() - interval '1 hour') >= 15 then
+    return null;
+  end if;
+  insert into public.ai_runs (user_id, mode, scripts, from_bonus) values (uid, 'outline', 0, 0) returning id into rid;
+  return rid;
+end $$;
+revoke all on function public.claim_outline(uuid) from public, anon, authenticated;
+
+-- 5. Keep the reminder email address in step when someone changes their login email.
+create or replace function public.sync_profile_email() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  update public.profiles set email = new.email where id = new.id;
+  return new;
+end $$;
+drop trigger if exists on_auth_user_email_changed on auth.users;
+create trigger on_auth_user_email_changed after update of email on auth.users
+  for each row when (old.email is distinct from new.email) execute function public.sync_profile_email();
+update public.profiles p set email = u.email from auth.users u where u.id = p.id and p.email is distinct from u.email;
