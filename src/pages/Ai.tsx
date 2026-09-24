@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { backend } from '../lib/backend'
-import { AI_ALLOWANCE, addDays, aiLeft, aiResetsOn, TOPUP_PRICE, TOPUP_SCRIPTS, TRIAL_DAYS, today, weekLabel, weekStart } from '../lib/model'
+import { AI_ALLOWANCE, addDays, aiAllowance, aiLeft, aiResetsOn, TOPUP_PRICE, TOPUP_SCRIPTS, TRIAL_DAYS, today, weekLabel, weekStart } from '../lib/model'
 import { sampleScripts } from '../lib/localScripts'
 import { useApp } from '../state'
 import { IconAi } from '../components/Brand'
@@ -44,7 +44,7 @@ export function AiPage() {
   }
 
   const left = aiLeft(profile)
-  const allowance = AI_ALLOWANCE[profile.plan]
+  const allowance = aiAllowance(profile)
   const used = Math.min(profile.aiUsed, allowance)
   const buyMore = async () => {
     setBuying(true)
@@ -80,7 +80,9 @@ export function AiPage() {
             <div className="bar-fill" style={{ width: `${allowance ? (used / allowance) * 100 : 0}%` }} />
           </div>
           <p className="muted small">
-            {used} of {allowance} used this month · resets {aiResetsOn()}
+            {profile.subscriptionStatus === 'trialing'
+              ? <>{used} of {allowance} free-trial scripts used · your full {AI_ALLOWANCE[profile.plan]} a month starts when the trial ends</>
+              : <>{used} of {allowance} used this month · resets {aiResetsOn()}</>}
             {profile.aiBonus > 0 && <> · plus {profile.aiBonus} extra that never expire</>}
           </p>
           <div className="deal-actions">
