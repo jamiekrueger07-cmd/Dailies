@@ -29,29 +29,25 @@ Deno.serve(async (req) => {
     const kind = String(body?.kind ?? '')
     const message = String(body?.message ?? '').trim()
     const page = String(body?.page ?? '').slice(0, 200)
-    if (!(kind in LABELS)) return json({ error: 'Pick a type of feedback.' }, 400)
+    if (!Object.hasOwn(LABELS, kind)) return json({ error: 'Pick a type of feedback.' }, 400)
     if (!message) return json({ error: 'Write a few words first.' }, 400)
     if (message.length > MAX) return json({ error: `Keep it under ${MAX} characters.` }, 400)
 
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
-    const since = new Date(Date.now() - 3600e3).toISOString()
-    const { count } = await admin.from('feedback').select('id', { count: 'exact', head: true }).eq('user_id', user.id).gte('created_at', since)
-    if ((count ?? 0) >= PER_HOUR) return json({ error: "That's a lot of notes in an hour. Try again a bit later, or email support@dailies.digital." }, 429)
-
     const { data: profile } = await admin.from('profiles').select('plan, display_name').eq('id', user.id).maybeSingle()
     const plan = profile?.plan ?? 'free'
-    const { data: row, error } = await admin
-      .from('feedback')
-      .insert({ user_id: user.id, email: user.email, plan, kind, message, page })
-      .select('id')
-      .single()
+    // Checks the limit (PER_HOUR a person) and saves in one locked step, so a burst of requests can't slip past it.
+    const { data: id, error } = await admin.rpc('submit_feedback', { uid: user.id, p_email: user.email, p_plan: plan, p_kind: kind, p_message: message, p_page: page })
     if (error) throw error
+    if (id == null) return json({ error: `That's a lot of notes in an hour (the limit is ${PER_HOUR}). Try again a bit later, or email support@dailies.digital.` }, 429)
+    const row = { id }
 
     // Email is a bonus: the note is already saved, so a mail hiccup never loses it.
     const key = Deno.env.get('RESEND_API_KEY')
     const from = Deno.env.get('REMINDER_FROM')
     if (key && from) {
-      const who = [profile?.display_name, user.email].filter(Boolean).join(' · ')
+      const name = String(profile?.display_name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80)
+      const who = [name, user.email].filter(Boolean).join(' · ')
       const first = message.replace(/\s+/g, ' ').slice(0, 60)
       const subject = `Feedback (${LABELS[kind]}): ${first}${message.length > 60 ? '…' : ''}`
       const meta = `From: ${who}\nPlan: ${plan}\nPage: ${page || '-'}\nNote #${row.id}`
