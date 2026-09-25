@@ -603,3 +603,93 @@ begin
   return rid;
 end $$;
 revoke all on function public.submit_feedback(uuid, text, text, text, text, text) from public, anon, authenticated;
+
+-- =====================================================================
+-- v11 (Sept 24): pay types + view bonuses
+-- =====================================================================
+
+-- 1. How a deal pays: per video (rate_per_video, already there), a base (per week or month),
+--    per 1,000 views with an optional cap per post, bonus tiers per post, and when views get counted.
+alter table public.deals add column if not exists base_pay numeric;
+alter table public.deals add column if not exists base_per text not null default 'month';
+alter table public.deals add column if not exists cpm numeric;
+alter table public.deals add column if not exists cpm_cap numeric;
+alter table public.deals add column if not exists bonus_tiers jsonb not null default '[]'::jsonb;
+alter table public.deals add column if not exists views_after_days int;
+alter table public.deals drop constraint if exists deals_pay_sane;
+alter table public.deals add constraint deals_pay_sane check (
+  base_per in ('week', 'month')
+  and (base_pay is null or base_pay between 0 and 1000000)
+  and (cpm is null or cpm between 0 and 10000)
+  and (cpm_cap is null or cpm_cap between 0 and 1000000)
+  and (rate_per_video is null or rate_per_video between 0 and 1000000)
+  and jsonb_typeof(bonus_tiers) = 'array' and jsonb_array_length(bonus_tiers) <= 10
+  and (views_after_days is null or views_after_days between 0 and 90)
+) not valid;
+
+-- 2. Views per post. Only ever written by its own update, so ticking a post never wipes them.
+alter table public.post_checks add column if not exists views bigint;
+alter table public.post_checks drop constraint if exists post_checks_views_ok;
+alter table public.post_checks add constraint post_checks_views_ok check (views is null or views between 0 and 100000000000) not valid;
+
+-- 3. Shared reports show each post's views too (never any pay).
+create or replace function public.get_shared_report(share_token text) returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object(
+    'month', s.month,
+    'creator_name', s.creator_name,
+    'deal', json_build_object(
+      'id', d.id, 'name', d.name, 'color', d.color, 'quota_mode', d.quota_mode,
+      'videos_per_day', d.videos_per_day, 'videos_per_week', d.videos_per_week,
+      'needs_approval', d.needs_approval, 'platforms', d.platforms,
+      'start_date', d.start_date, 'end_date', d.end_date, 'film_day', null, 'status', d.status
+    ),
+    'checks', coalesce((
+      select json_agg(json_build_object('deal_id', c.deal_id, 'date', c.date, 'video_no', c.video_no, 'platform', c.platform, 'link', c.link, 'views', c.views))
+      from public.post_checks c
+      where c.deal_id = s.deal_id and c.user_id = s.user_id and to_char(c.date, 'YYYY-MM') = s.month
+    ), '[]'::json)
+  )
+  from public.report_shares s join public.deals d on d.id = s.deal_id and d.user_id = s.user_id
+  where s.token = share_token
+$$;
+revoke all on function public.get_shared_report(text) from public;
+grant execute on function public.get_shared_report(text) to anon, authenticated;
+
+-- =====================================================================
+-- v12 (Sept 24): free-forever (comped) accounts, e.g. the owner's
+-- =====================================================================
+-- Emails listed here always get that plan for free. Nothing in billing can take it away:
+-- a trigger re-applies it whenever the profile changes (sign-up, Stripe webhook, anything).
+create table if not exists public.comp_accounts (
+  email text primary key check (email = lower(email)),
+  plan text not null default 'plus' check (plan in ('pro', 'plus')),
+  note text,
+  created_at timestamptz not null default now()
+);
+alter table public.comp_accounts enable row level security; -- no policies: only the database itself reads it
+
+create or replace function public.apply_comp() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  cp text;
+begin
+  select c.plan into cp from public.comp_accounts c where c.email = lower(new.email);
+  if cp is not null then
+    new.plan := cp;
+    new.subscription_status := 'comped';
+    new.trial_end := null;
+    new.current_period_end := null;
+  end if;
+  return new;
+end $$;
+revoke all on function public.apply_comp() from public, anon, authenticated;
+
+drop trigger if exists profiles_apply_comp on public.profiles;
+create trigger profiles_apply_comp before insert or update on public.profiles
+  for each row execute function public.apply_comp();
+
+-- The owner
+insert into public.comp_accounts (email, plan, note) values ('jamie.krueger07@gmail.com', 'plus', 'Owner')
+  on conflict (email) do update set plan = excluded.plan;
+update public.profiles set email = email where lower(email) in (select email from public.comp_accounts);
