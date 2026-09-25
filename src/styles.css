@@ -964,3 +964,15 @@ button.vid-label:hover { color: var(--ink); }
 .catchup-head .chev { font-weight: 700; color: var(--muted); }
 .catchup-days { margin: 4px 0 2px; padding-left: 20px; font-size: 14px; }
 .catchup-days li { margin: 4px 0; }
+
+/* v23: sign-up code + skip onboarding */
+.code-input { font-size: 26px; letter-spacing: .35em; text-align: center; font-variant-numeric: tabular-nums; padding: 14px 10px; }
+.code-input::placeholder { letter-spacing: .35em; color: var(--line, #d9ddd6); }
+.code-email { word-break: break-all; color: var(--ink); }
+.onboard-skip { display: block; margin: 18px auto 0; }
+.start-card { text-align: left; padding: 20px; margin-bottom: 14px; }
+#code-help b { white-space: nowrap; }
+.start-card h2 { margin: 0 0 6px; }
+.start-card ol { margin: 10px 0 16px; padding-left: 20px; }
+.start-card li { margin: 6px 0; }
+.start-card .btn + .btn { margin-top: 8px; }

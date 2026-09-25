@@ -1,7 +1,7 @@
 import { lazy, StrictMode, Suspense, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Analytics, type BeforeSendEvent } from '@vercel/analytics/react'
-import { BrowserRouter, HashRouter, Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, HashRouter, Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import './styles.css'
 import { backend } from './lib/backend'
 import { AppProvider, useApp } from './state'
@@ -20,6 +20,7 @@ const OnboardingPage = lazy(() => import('./pages/Onboarding').then((m) => ({ de
 import { AccountPage, CheckoutWatcher } from './pages/Account'
 import { LegalPage } from './pages/Legal'
 import { useTitle } from './lib/title'
+import { skipKey } from './lib/skip'
 const SharedReportPage = lazy(() => import('./pages/SharedReport').then((m) => ({ default: m.SharedReportPage })))
 
 function ToastView() {
@@ -100,10 +101,17 @@ function Shell({ children }: { children: ReactNode }) {
 
 function AppRoutes() {
   const { userId, loading, deals } = useApp()
+  useLocation() // re-check the skip flag after "Skip for now" navigates
+  let skipped = false
+  try {
+    skipped = !!userId && localStorage.getItem(skipKey(userId)) === '1'
+  } catch {
+    /* storage blocked */
+  }
   // Wait for the brands to load too, so a link like /app/ai isn't bounced to the welcome screen on refresh.
   if (loading && (!userId || deals.length === 0)) return <div className="splash">Loading…</div>
   if (!userId) return <Navigate to="/login" replace />
-  if (deals.length === 0)
+  if (deals.length === 0 && !skipped)
     return (
       <>
         <Routes>
