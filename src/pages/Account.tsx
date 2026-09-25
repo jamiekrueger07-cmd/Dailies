@@ -132,6 +132,7 @@ export function AccountPage() {
   const renews = fmtDate(profile.currentPeriodEnd)
   const trialEnds = profile.subscriptionStatus === 'trialing' ? fmtDate(profile.trialEnd) : null
   const priceText = profile.plan === 'free' ? '' : tierPriceText(profile.plan, profile.interval ?? 'month')
+  const comped = profile.subscriptionStatus === 'comped'
 
   return (
     <div className="page">
@@ -158,9 +159,12 @@ export function AccountPage() {
             <div className="plan-name">
               {planName(profile.plan)}
               {isPro && trialEnds && <span className="badge active">Free trial</span>}
+              {comped && <span className="badge active">Free forever</span>}
             </div>
             <p className="muted small">
-              {isPro
+              {comped
+                ? 'This account is on the house. No billing, ever.'
+                : isPro
                 ? profile.subscriptionStatus === 'past_due'
                   ? 'Your last payment didn’t go through. Update your card in Manage billing to keep your plan and get your monthly AI scripts back.'
                   : trialEnds
@@ -172,7 +176,7 @@ export function AccountPage() {
             </p>
           </div>
         </div>
-        {isPro ? (
+        {comped ? null : isPro ? (
           <>
             {profile.plan === 'pro' && (
               <button className="btn primary block" onClick={() => openUpgrade('Get more AI scripts', 'plus')}>
@@ -214,7 +218,7 @@ export function AccountPage() {
             {profile.aiBonus > 0 && <> · plus {profile.aiBonus} extra that never expire</>}
           </p>
           <p className="muted tiny">Every script the AI writes or pulls out of a brief counts as 1. Writing your own is always free.</p>
-          <div className="deal-actions">
+          <div className="deal-actions" hidden={comped}>
             <button className="btn small" onClick={buyMore} disabled={buying}>
               {buying ? 'Opening checkout…' : `Get ${TOPUP_SCRIPTS} more for $${TOPUP_PRICE}`}
             </button>

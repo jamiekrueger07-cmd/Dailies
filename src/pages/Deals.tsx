@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import { DealForm } from '../components/DealForm'
 import { ProBadge } from '../components/Upgrade'
-import { dealProblem, FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
+import { dealProblem, FREE_DEAL_LIMIT, newDeal, paySummary, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
 import { useApp } from '../state'
 import { useTitle } from '../lib/title'
 
@@ -80,7 +80,7 @@ export function DealsPage() {
               {vw} videos a week on {d.platforms.map((p) => PLATFORMS.find((x) => x.id === p)!.short).join(', ')} · {vw * d.platforms.length} posts a
               week
               {d.needsApproval && <> · needs approval</>}
-              {d.ratePerVideo != null && <> · ${d.ratePerVideo}/video</>}
+              {paySummary(d) && <> · {paySummary(d)}</>}
               {d.endDate && <> · ends {d.endDate}</>}
               {d.contact && <> · {d.contact}</>}
             </div>

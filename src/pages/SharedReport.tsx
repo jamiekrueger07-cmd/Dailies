@@ -30,6 +30,7 @@ export function SharedReportPage() {
       videosDone: rows.filter((r) => r.done).length,
       postsOwed: rows.reduce((n, r) => n + r.platforms.length, 0),
       postsDone: rows.reduce((n, r) => n + r.posted, 0),
+      views: data.checks.reduce((n, c) => n + (c.views ?? 0), 0),
     }
   }, [data])
 
@@ -82,6 +83,12 @@ export function SharedReportPage() {
           <div className="stat-n">{pct}%</div>
           <div className="stat-l">of quota</div>
         </div>
+        {view.views > 0 && (
+          <div className="stat">
+            <div className="stat-n">{view.views.toLocaleString()}</div>
+            <div className="stat-l">views</div>
+          </div>
+        )}
       </div>
 
       <div className="table-wrap">
@@ -114,6 +121,7 @@ export function SharedReportPage() {
                         ) : (
                           <span className="ok">Posted</span>
                         )}
+                        {c?.views != null && <span className="ledger-views">{c.views.toLocaleString()} views</span>}
                       </td>
                     )
                   })}
