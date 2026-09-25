@@ -52,6 +52,26 @@ const TOOL = {
 
 const PDF_PAGE_LIMIT = 20
 
+// Three fresh openings for a script that already exists. Free, but capped per hour.
+const HOOKS_TOOL = {
+  name: 'save_hooks',
+  description: 'Save three alternative hooks.',
+  input_schema: {
+    type: 'object',
+    properties: { hooks: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3 } },
+    required: ['hooks'],
+  },
+}
+const HOOKS_PER_HOUR = 30
+const HOOKS_PROMPT = (brand: string) => `You write hooks for short-form UGC videos (TikTok, Reels, Shorts) for ${brand}.
+A hook is the first line or on-screen text: it has to stop the scroll in 1-3 seconds.
+You get a script's current hook, its format and what the creator says. Write 3 NEW hooks for the same video:
+- each a different angle: one curiosity/open loop, one relatable problem or POV, one bold honest take or result
+- max 15 words, natural spoken first person, no hashtags, no emojis, no quotation marks
+- keep to what the script says about the product; never invent features, prices, stats or claims
+- must still lead into the rest of the script as written
+Save them with save_hooks.`
+
 // The model sometimes sends a list as a JSON string, or a single object. Always get an array back.
 function asList(v: unknown): any[] {
   if (typeof v === 'string') {
@@ -316,11 +336,12 @@ Deno.serve(async (req) => {
     const { data: profile } = await admin.from('profiles').select('plan').eq('id', user.id).maybeSingle()
     if (profile?.plan !== 'pro' && profile?.plan !== 'plus') return json({ error: 'PRO_ONLY' }, 403)
 
+    const body = await req.json()
     const { data: left, error: leftErr } = await admin.rpc('ai_scripts_left', { uid: user.id })
     if (leftErr) throw leftErr
-    if ((left ?? 0) <= 0) return json({ error: 'AI_LIMIT' }, 429)
+    // New hooks don't use AI scripts, so they work even when someone has none left.
+    if ((left ?? 0) <= 0 && body.mode !== 'hooks') return json({ error: 'AI_LIMIT' }, 429)
 
-    const body = await req.json()
     const brand = cap(body.brand || 'the brand', 100)
 
     // Safety net on our AI bill: a per-person daily spend cap (normal use is a small fraction of it).
@@ -346,6 +367,20 @@ Deno.serve(async (req) => {
     const finish = async (rid: number, n: number, model: string | null, inTok = 0, outTok = 0) => {
       const { error } = await admin.rpc('finish_ai_run', { rid, n, run_model: model, in_tok: inTok, out_tok: outTok, cost: model ? costUsd(model, inTok, outTok) : 0 })
       if (error) console.error('finish_ai_run failed', error)
+    }
+
+    // ---- 3 new hooks for an existing script. Free, capped at HOOKS_PER_HOUR. ----
+    if (body.mode === 'hooks') {
+      const { count } = await admin.from('ai_runs').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('mode', 'hooks').gte('created_at', new Date(Date.now() - 36e5).toISOString())
+      if ((count ?? 0) >= HOOKS_PER_HOUR) return json({ error: "That's a lot of new hooks this hour. Try again in a little while." }, 429)
+      const sc = body.script ?? {}
+      const lines = Array.isArray(sc.lines) ? sc.lines.slice(0, 30).map((l: unknown) => cap(l, 400)).join('\n') : ''
+      const text = [`Format: ${cap(sc.format, 80) || 'Short video'}`, `Current hook: ${cap(sc.hook, 300) || '(none)'}`, `What the creator says:\n${lines || '(no spoken lines)'}`].join('\n\n')
+      const { input, inTok, outTok } = await claude(splitModel, HOOKS_PROMPT(brand), [{ type: 'text', text }], HOOKS_TOOL, 600)
+      await log('hooks', 0, splitModel, inTok, outTok)
+      const hooks = asList(input.hooks).map((h: unknown) => String(h ?? '').replace(/^["“”']+|["“”']+$/g, '').trim().slice(0, 200)).filter(Boolean).slice(0, 3)
+      if (!hooks.length) return json({ error: "Couldn't come up with new hooks. Try again." }, 502)
+      return json({ hooks })
     }
 
     // ---- Brief, step 1: find the videos. Free (doesn't use AI scripts). ----
