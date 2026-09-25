@@ -200,6 +200,10 @@ export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: 
           ))}
         </div>
       </div>
+      <label>
+        Account you post from
+        <input value={deal.handle ?? ''} maxLength={100} onChange={(e) => up({ handle: e.target.value })} placeholder="e.g. @yourname.ugc (optional)" />
+      </label>
       <div className="row2">
         <label>
           Start date
