@@ -724,3 +724,6 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.get_shared_report(text) from public;
 grant execute on function public.get_shared_report(text) to anon, authenticated;
+
+-- v14: posting day per film-list video (scripts imported in order get one day each)
+alter table public.videos add column if not exists post_date date;
