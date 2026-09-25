@@ -15,6 +15,16 @@ export interface Deal {
   needsApproval: boolean
   platforms: PlatformId[]
   ratePerVideo: number | null
+  /** Flat pay on top, per week or per month the deal runs. */
+  basePay?: number | null
+  basePer?: 'week' | 'month'
+  /** Pay per 1,000 views on each post, optionally capped per post. */
+  cpm?: number | null
+  cpmCap?: number | null
+  /** One-off bonus per post: the highest tier the post reaches. */
+  bonusTiers?: BonusTier[]
+  /** The brand counts views this many days after posting. */
+  viewsAfterDays?: number | null
   startDate: string
   endDate: string | null
   filmDay: number | null
@@ -28,12 +38,18 @@ export interface Deal {
   createdAt?: string
 }
 
+export interface BonusTier {
+  views: number
+  amount: number
+}
+
 export interface Check {
   dealId: string
   date: string
   videoNo: number
   platform: PlatformId
   link?: string | null
+  views?: number | null
 }
 
 export interface Video {
@@ -292,13 +308,76 @@ export function missedRows(deals: Deal[], checks: Map<string, Check>, days = 30)
   return out
 }
 
+export interface Pay {
+  base: number
+  videos: number
+  views: number
+  bonus: number
+}
+
 export interface MonthLine {
   deal: Deal
   videosOwed: number
   videosDone: number
   postsOwed: number
   postsDone: number
+  /** Total pay this month, or null when the deal has no pay set up. */
   earned: number | null
+  pay: Pay
+  /** Views logged on this month's posts. */
+  views: number
+  /** Posts made this month, and how many of them have views logged. */
+  posts: number
+  postsWithViews: number
+  /** Posts whose counting day has come but still have no views. */
+  viewsDue: number
+}
+
+const money = (n: number) => Math.round(n * 100) / 100
+export const hasViewPay = (d: Deal) => (d.cpm ?? 0) > 0 || (d.bonusTiers ?? []).some((t) => t.amount > 0 && t.views > 0)
+export const hasPay = (d: Deal) => (d.ratePerVideo ?? 0) > 0 || (d.basePay ?? 0) > 0 || hasViewPay(d)
+
+/** What one post earns from its views: per-1,000 pay (capped) plus the highest bonus it reached. */
+export function postViewPay(d: Deal, views: number | null | undefined) {
+  if (views == null || views <= 0) return { cpm: 0, bonus: 0 }
+  let cpm = d.cpm ? (views / 1000) * d.cpm : 0
+  if (d.cpmCap != null && d.cpmCap > 0) cpm = Math.min(cpm, d.cpmCap)
+  const bonus = Math.max(0, ...(d.bonusTiers ?? []).filter((t) => t.views > 0 && views >= t.views).map((t) => t.amount))
+  return { cpm: money(cpm), bonus }
+}
+
+/** Base pay earned in a month: each month the deal runs, or each week (a week belongs to the month of its first live day). */
+function basePayFor(d: Deal, month: string, t = today()) {
+  const amt = d.basePay ?? 0
+  if (amt <= 0) return 0
+  const first = `${month}-01`
+  const [y, m] = month.split('-').map(Number)
+  const last = `${month}-${pad(new Date(y, m, 0).getDate())}`
+  if (first > t) return 0
+  if (d.basePer === 'week') {
+    let n = 0
+    for (let w = weekStart(first); w <= last && w <= t; w = addDays(w, 7)) {
+      const live = liveDaysInWeek(d, w).filter((x) => x <= t)
+      if (live.length && live[0] >= first && live[0] <= last) n++
+    }
+    return amt * n
+  }
+  for (let x = first; x <= last && x <= t; x = addDays(x, 1)) if (isLive(d, x)) return amt
+  return 0
+}
+
+/** When a post's views are ready to count (posting day + the brand's wait), or null if there's no wait. */
+export const viewsReadyOn = (d: Deal, date: string) => (d.viewsAfterDays ? addDays(date, d.viewsAfterDays) : null)
+
+/** Short "how this deal pays" line, e.g. "$25/video · $250/week base · $1 per 1K views · bonuses". */
+export function paySummary(d: Deal) {
+  const f = (n: number) => `$${n.toLocaleString()}`
+  const bits: string[] = []
+  if (d.ratePerVideo) bits.push(`${f(d.ratePerVideo)}/video`)
+  if (d.basePay) bits.push(`${f(d.basePay)}/${d.basePer === 'week' ? 'week' : 'month'} base`)
+  if (d.cpm) bits.push(`${f(d.cpm)} per 1K views`)
+  if ((d.bonusTiers ?? []).some((t) => t.amount > 0)) bits.push('view bonuses')
+  return bits.join(' · ')
 }
 
 export function monthReport(deals: Deal[], checks: Map<string, Check>, month: string): MonthLine[] {
@@ -306,7 +385,8 @@ export function monthReport(deals: Deal[], checks: Map<string, Check>, month: st
   const last = new Date(y, m, 0).getDate()
   const t = today()
   const map = new Map<string, MonthLine>()
-  for (const d of deals) map.set(d.id, { deal: d, videosOwed: 0, videosDone: 0, postsOwed: 0, postsDone: 0, earned: null })
+  for (const d of deals)
+    map.set(d.id, { deal: d, videosOwed: 0, videosDone: 0, postsOwed: 0, postsDone: 0, earned: null, pay: { base: 0, videos: 0, views: 0, bonus: 0 }, views: 0, posts: 0, postsWithViews: 0, viewsDue: 0 })
   for (let day = 1; day <= last; day++) {
     const date = `${y}-${pad(m)}-${pad(day)}`
     if (date > t) break
@@ -319,7 +399,27 @@ export function monthReport(deals: Deal[], checks: Map<string, Check>, month: st
     }
   }
   const lines = [...map.values()].filter((l) => l.videosOwed > 0 || l.deal.status === 'active')
-  for (const l of lines) if (l.deal.ratePerVideo != null) l.earned = l.videosDone * l.deal.ratePerVideo
+  // Views and view pay come from every post made this month (posts only count up to today).
+  for (const c of checks.values()) {
+    if (!c.date.startsWith(month + '-') || c.date > t) continue
+    const l = map.get(c.dealId)
+    if (!l) continue
+    l.posts++
+    if (c.views != null) {
+      l.postsWithViews++
+      l.views += c.views
+      const vp = postViewPay(l.deal, c.views)
+      l.pay.views += vp.cpm
+      l.pay.bonus += vp.bonus
+    } else if ((viewsReadyOn(l.deal, c.date) ?? c.date) <= t) l.viewsDue++
+  }
+  for (const l of lines) {
+    const d = l.deal
+    l.pay.videos = money(l.videosDone * (d.ratePerVideo ?? 0))
+    l.pay.base = basePayFor(d, month, t)
+    l.pay.views = money(l.pay.views)
+    if (hasPay(d) || d.ratePerVideo != null) l.earned = money(l.pay.base + l.pay.videos + l.pay.views + l.pay.bonus)
+  }
   return lines
 }
 

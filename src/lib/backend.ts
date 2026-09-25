@@ -58,6 +58,8 @@ export interface Backend {
   deleteDeal(userId: string, id: string): Promise<void>
   setCheck(userId: string, c: Check, on: boolean): Promise<void>
   setChecks(userId: string, cs: Check[], on: boolean): Promise<void>
+  /** Views are written on their own, so ticking a post never touches them. */
+  setViews(userId: string, c: Check, views: number | null): Promise<void>
   saveSettings(userId: string, s: Settings): Promise<void>
   createShare(userId: string, dealId: string, month: string, creatorName: string): Promise<string>
   getShare(token: string): Promise<SharedReport | null>
@@ -82,6 +84,7 @@ export interface Backend {
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
+const num = (v: unknown) => (v == null || v === '' ? null : Number(v))
 const dealFromRow = (r: any): Deal => ({
   id: r.id,
   name: r.name,
@@ -91,7 +94,13 @@ const dealFromRow = (r: any): Deal => ({
   videosPerWeek: r.videos_per_week ?? r.videos_per_day * 7,
   needsApproval: r.needs_approval ?? false,
   platforms: r.platforms,
-  ratePerVideo: r.rate_per_video,
+  ratePerVideo: num(r.rate_per_video),
+  basePay: num(r.base_pay),
+  basePer: r.base_per === 'week' ? 'week' : 'month',
+  cpm: num(r.cpm),
+  cpmCap: num(r.cpm_cap),
+  bonusTiers: Array.isArray(r.bonus_tiers) ? r.bonus_tiers.map((t: any) => ({ views: Number(t.views) || 0, amount: Number(t.amount) || 0 })) : [],
+  viewsAfterDays: r.views_after_days ?? null,
   startDate: r.start_date,
   endDate: r.end_date,
   filmDay: r.film_day ?? null,
@@ -114,6 +123,12 @@ const dealToRow = (d: Deal, user_id: string) => ({
   needs_approval: d.needsApproval,
   platforms: d.platforms,
   rate_per_video: d.ratePerVideo,
+  base_pay: d.basePay ?? null,
+  base_per: d.basePer ?? 'month',
+  cpm: d.cpm ?? null,
+  cpm_cap: d.cpmCap ?? null,
+  bonus_tiers: d.bonusTiers ?? [],
+  views_after_days: d.viewsAfterDays ?? null,
   start_date: d.startDate,
   end_date: d.endDate,
   film_day: d.filmDay,
@@ -325,6 +340,12 @@ function cloud(sb: SupabaseClient): Backend {
           { onConflict: 'user_id,deal_id,date,video_no,platform' },
         )
         if (error) throw friendly(error)
+        // Undo can put back a post that had views; those go in with their own update.
+        for (const c of cs)
+          if (c.views != null) {
+            const r = await sb.from('post_checks').update({ views: c.views }).match({ user_id: userId, deal_id: c.dealId, date: c.date, video_no: c.videoNo, platform: c.platform })
+            if (r.error) throw friendly(r.error)
+          }
       } else {
         for (const c of cs) {
           const { error } = await sb
@@ -334,6 +355,13 @@ function cloud(sb: SupabaseClient): Backend {
           if (error) throw friendly(error)
         }
       }
+    },
+    async setViews(userId, c, views) {
+      const { error } = await sb
+        .from('post_checks')
+        .update({ views })
+        .match({ user_id: userId, deal_id: c.dealId, date: c.date, video_no: c.videoNo, platform: c.platform })
+      if (error) throw friendly(error)
     },
     async createShare(userId, dealId, month, creatorName) {
       const { data, error } = await sb
@@ -352,7 +380,7 @@ function cloud(sb: SupabaseClient): Backend {
         month: data.month,
         creatorName: data.creator_name ?? '',
         deal: dealFromRow({ ...data.deal, contact: '', notes: '', rate_per_video: null, invoice_sent: false, paid: false, sort_order: 0 }),
-        checks: (data.checks ?? []).map((r: any) => ({ dealId: r.deal_id, date: r.date, videoNo: r.video_no, platform: r.platform, link: r.link })),
+        checks: (data.checks ?? []).map((r: any) => ({ dealId: r.deal_id, date: r.date, videoNo: r.video_no, platform: r.platform, link: r.link, views: r.views ?? null })),
       }
     },
     shareUrl: (token) => `${window.location.origin}/r/${token}`,
@@ -369,7 +397,7 @@ function cloud(sb: SupabaseClient): Backend {
       }
       const [d, c, v, sc] = await Promise.all([
         sb.from('deals').select('*').eq('user_id', userId).order('sort_order').order('id'),
-        all((a, b) => sb.from('post_checks').select('deal_id,date,video_no,platform,link').eq('user_id', userId).order('date').order('deal_id').order('video_no').order('platform').range(a, b)),
+        all((a, b) => sb.from('post_checks').select('deal_id,date,video_no,platform,link,views').eq('user_id', userId).order('date').order('deal_id').order('video_no').order('platform').range(a, b)),
         all((a, b) => sb.from('videos').select('*').eq('user_id', userId).order('sort_order').order('id').range(a, b)),
         all((a, b) => sb.from('scripts').select('*').eq('user_id', userId).order('sort_order').order('id').range(a, b)),
       ])
@@ -378,7 +406,7 @@ function cloud(sb: SupabaseClient): Backend {
       if (v.error) throw v.error
       return {
         deals: d.data!.map(dealFromRow),
-        checks: c.data!.map((r: any) => ({ dealId: r.deal_id, date: r.date, videoNo: r.video_no, platform: r.platform, link: r.link })),
+        checks: c.data!.map((r: any) => ({ dealId: r.deal_id, date: r.date, videoNo: r.video_no, platform: r.platform, link: r.link, views: r.views ?? null })),
         videos: v.data!.map(videoFromRow),
         // scripts arrived after launch; an older database without the table still loads
         scripts: sc.error ? [] : sc.data!.map(scriptFromRow),
@@ -651,6 +679,12 @@ function preview(): Backend {
     async setChecks(_u, cs, on) {
       const m = new Map(get<Check[]>('checks', []).map((x) => [checkKey(x), x]))
       for (const c of cs) on ? m.set(checkKey(c), c) : m.delete(checkKey(c))
+      set('checks', [...m.values()])
+    },
+    async setViews(_u, c, views) {
+      const m = new Map(get<Check[]>('checks', []).map((x) => [checkKey(x), x]))
+      const cur = m.get(checkKey(c))
+      if (cur) m.set(checkKey(c), { ...cur, views })
       set('checks', [...m.values()])
     },
     async createShare(_u, dealId, month, creatorName) {
