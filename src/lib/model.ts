@@ -14,6 +14,8 @@ export interface Deal {
   videosPerWeek: number
   needsApproval: boolean
   platforms: PlatformId[]
+  /** The account this brand's videos go up on, e.g. "@jamiesdintl" (optional). */
+  handle?: string
   ratePerVideo: number | null
   /** Flat pay on top, per week or per month the deal runs. */
   basePay?: number | null

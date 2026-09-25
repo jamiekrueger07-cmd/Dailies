@@ -69,6 +69,8 @@ export interface Backend {
   putScripts(userId: string, s: Script[]): Promise<void>
   dropScripts(userId: string, ids: string[]): Promise<void>
   aiScripts(req: AiRequest): Promise<AiResult>
+  /** Three fresh hooks for a script. Free (doesn't use AI scripts), capped per hour. */
+  altHooks(req: HookRequest): Promise<string[]>
   /** Reading a brief, step 1: find every video in it (free). fallback = read it the old one-shot way. */
   briefOutline(req: { brand: string; text?: string; file?: { name: string; type: string; data: string }; notes?: string }): Promise<BriefOutline>
   /** Reading a brief, step 2: turn one video into a script card (uses 1 AI script). Throws code RATE_LIMIT when the AI is busy. */
@@ -94,6 +96,7 @@ const dealFromRow = (r: any): Deal => ({
   videosPerWeek: r.videos_per_week ?? r.videos_per_day * 7,
   needsApproval: r.needs_approval ?? false,
   platforms: r.platforms,
+  handle: r.handle ?? '',
   ratePerVideo: num(r.rate_per_video),
   basePay: num(r.base_pay),
   basePer: r.base_per === 'week' ? 'week' : 'month',
@@ -122,6 +125,7 @@ const dealToRow = (d: Deal, user_id: string) => ({
   videos_per_week: d.videosPerWeek,
   needs_approval: d.needsApproval,
   platforms: d.platforms,
+  handle: (d.handle ?? '').trim().slice(0, 100),
   rate_per_video: d.ratePerVideo,
   base_pay: d.basePay ?? null,
   base_per: d.basePer ?? 'month',
@@ -196,6 +200,11 @@ const scriptToRow = (x: Script, user_id: string) => ({
   source: x.source,
   sort_order: x.sortOrder,
 })
+
+export interface HookRequest {
+  brand: string
+  script: { hook: string; format: string; lines: string[] }
+}
 
 /** Calls the scripts-ai server function; turns its error codes into friendly messages. */
 async function invokeAiWith(sb: any, body: unknown) {
@@ -460,6 +469,12 @@ function cloud(sb: SupabaseClient): Backend {
       const data = await invokeAiWith(sb, { mode: 'outline', ...req })
       if (data?.fallback) return { fallback: true }
       return { videos: data.videos as BriefVideo[], shared: (data.shared ?? []) as string[], brief: String(data.brief ?? '') }
+    },
+    async altHooks(req) {
+      const data = await invokeAiWith(sb, { mode: 'hooks', ...req })
+      const hooks = Array.isArray(data?.hooks) ? data.hooks.map(String).filter(Boolean) : []
+      if (!hooks.length) throw new Error("Couldn't come up with new hooks. Try again.")
+      return hooks
     },
     async briefCard(req) {
       const data = await invokeAiWith(sb, { mode: 'card', ...req })
@@ -769,6 +784,16 @@ function preview(): Backend {
       const d = res.scripts[0]
       if (!d) throw new Error("Couldn't turn that part into a script.")
       return { ...d, title: d.title && !req.video.label.toLowerCase().endsWith(d.title.toLowerCase()) ? `${req.video.label}: ${d.title}` : req.video.label, notes: [req.notes ? `(Preview) Followed your note: ${req.notes}` : '', d.notes].filter(Boolean).join('\n') }
+    },
+    async altHooks(req) {
+      if (get<Plan>('plan', 'free') === 'free') throw new Error('New hooks are a Pro feature.')
+      await new Promise((r) => setTimeout(r, 500))
+      const topic = (req.script.lines[0] || req.script.hook || req.brand).replace(/[.!?]+$/, '')
+      return [
+        `Nobody told me this about ${req.brand} until it was too late`,
+        `POV: you finally stop overthinking it`,
+        `I tried ${req.brand} for a week. Honest review: ${topic.split(' ').slice(0, 5).join(' ').toLowerCase()}…`,
+      ]
     },
     async aiScripts(req) {
       // same allowance rules as the live scripts-ai function
