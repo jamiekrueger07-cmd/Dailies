@@ -12,6 +12,7 @@ import {
   type Interval,
   type Tier,
 } from '../lib/model'
+import { track } from '../lib/track'
 import { useApp } from '../state'
 
 export const PRO_FEATURES = [
@@ -110,6 +111,7 @@ export function UpgradeSheet() {
       } catch {
         /* the watcher falls back to any paid plan */
       }
+      track('Checkout started', { plan: tier, billing: interval })
       await backend.startCheckout(interval, tier)
       closeUpgrade()
     } catch (e: any) {
