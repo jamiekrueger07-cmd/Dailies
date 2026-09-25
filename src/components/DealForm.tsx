@@ -157,7 +157,7 @@ export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: 
       <div className="row2">
         {deal.quotaMode === 'week' ? (
           <label>
-            Videos per week
+            Videos posted per week
             <input
               type="number"
               min={1}
@@ -168,7 +168,7 @@ export function DealForm({ deal, onChange, index }: { deal: Deal; onChange: (d: 
           </label>
         ) : (
           <label>
-            Videos per day
+            Videos posted per day
             <input
               type="number"
               min={1}
