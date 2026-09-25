@@ -194,6 +194,9 @@ export function FilmPage() {
           </button>
         </div>
       </header>
+      <Link className="btn block shoot-link" to={`/app/film/shoot?week=${week}`}>
+        Shoot sheet + teleprompter
+      </Link>
       <div className="seg film-seg" role="tablist" aria-label="Film view">
         <button role="tab" aria-selected={view === 'shots'} className={view === 'shots' ? 'on' : ''} onClick={() => pickView('shots')}>
           Shot list
