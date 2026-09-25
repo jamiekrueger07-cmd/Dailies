@@ -42,6 +42,10 @@ export interface Backend {
   onAuthChange(cb: () => void): () => void
   signIn(email: string, password: string): Promise<void>
   signUp(email: string, password: string, name?: string): Promise<{ needsConfirm: boolean }>
+  /** Finish sign-up with the code from the confirmation email. Logs them in. */
+  verifySignup(email: string, code: string): Promise<void>
+  /** Send the sign-up code again. */
+  resendSignup(email: string): Promise<void>
   resetPassword(email: string): Promise<void>
   /** Set a new password (after following a reset link, which logs you in). */
   updatePassword(password: string): Promise<void>
@@ -262,6 +266,14 @@ function cloud(sb: SupabaseClient): Backend {
       })
       if (error) throw error
       return { needsConfirm: !data.session }
+    },
+    async verifySignup(email, code) {
+      const { error } = await sb.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' })
+      if (error) throw /expired|invalid/i.test(error.message) ? new Error('That code isn’t right or has expired. Check the latest email, or send a new code.') : error
+    },
+    async resendSignup(email) {
+      const { error } = await sb.auth.resend({ type: 'signup', email: email.trim(), options: { emailRedirectTo: `${window.location.origin}/app` } })
+      if (error) throw /seconds|rate/i.test(error.message) ? new Error('Give it a minute before sending another code.') : error
     },
     async resetPassword(email) {
       const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` })
@@ -545,7 +557,7 @@ const set = (k: string, v: unknown) => {
   }
 }
 
-type PreviewAccount = { id: string; pw: string | null }
+type PreviewAccount = { id: string; pw: string | null; pending?: boolean }
 // Not security, just so a wrong password is rejected in the preview.
 const pwHash = (pw: string) => {
   let h = 5381
@@ -605,6 +617,7 @@ function preview(): Backend {
       const key = email.trim().toLowerCase()
       const acct = accounts[key]
       if (!acct) throw new Error('No account with that email yet. Sign up first.')
+      if (acct.pending) throw new Error('Email not confirmed')
       if (acct.pw === null) set('accounts', { ...accounts, [key]: { ...acct, pw: pwHash(password) } })
       else if (acct.pw !== pwHash(password)) throw new Error('That email and password don’t match. Try again or reset your password.')
       set('user', { id: acct.id, email: email.trim() })
@@ -615,12 +628,21 @@ function preview(): Backend {
       const key = email.trim().toLowerCase()
       if (accounts[key]) throw new Error('There’s already an account with that email. Log in instead.')
       const id = 'p' + Math.random().toString(36).slice(2, 10)
-      set('accounts', { ...accounts, [key]: { id, pw: pwHash(password) } })
-      set('user', { id, email: email.trim() })
+      set('accounts', { ...accounts, [key]: { id, pw: pwHash(password), pending: true } })
       if (name?.trim()) set('settings', { ...DEFAULT_SETTINGS, displayName: name.trim() })
-      emit()
-      return { needsConfirm: false }
+      return { needsConfirm: true }
     },
+    // Preview: no email is sent, so any 6 digits confirm the account.
+    async verifySignup(email, code) {
+      const accounts = get<Record<string, PreviewAccount>>('accounts', {})
+      const key = email.trim().toLowerCase()
+      if (!accounts[key]) throw new Error('No account with that email yet. Sign up first.')
+      if (!/^\d{6,8}$/.test(code.trim())) throw new Error('That code isn’t right or has expired. Check the latest email, or send a new code.')
+      set('accounts', { ...accounts, [key]: { ...accounts[key], pending: false } })
+      set('user', { id: accounts[key].id, email: email.trim() })
+      emit()
+    },
+    async resendSignup() {},
     async resetPassword() {},
     async updatePassword(password) {
       const user = get<User | null>('user', null)
