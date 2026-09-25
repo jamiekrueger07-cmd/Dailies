@@ -65,6 +65,8 @@ export interface Video {
   revision: string
   status: VideoStatus
   sortOrder: number
+  /** The day this video goes up (YYYY-MM-DD). Set when scripts are imported in order; empty for hand-added videos. */
+  postDate?: string | null
 }
 
 export type Interval = 'month' | 'year'
@@ -262,6 +264,22 @@ export function videosOn(d: Deal, date: string) {
   const n = d.videosPerWeek
   return Math.ceil(((i + 1) * n) / days.length) - Math.ceil((i * n) / days.length)
 }
+
+/**
+ * The next `count` posting slots for a brand from `from` on, in order: one entry per video, following its
+ * quota (1 a day -> one date per day; 3 a week -> Mon, Wed, Fri) and skipping days it isn't live.
+ */
+export function postingSlots(d: Deal, from: string, count: number, maxDays = 400): string[] {
+  const out: string[] = []
+  for (let i = 0; out.length < count && i < maxDays; i++) {
+    const date = addDays(from, i)
+    for (let k = videosOn(d, date); k > 0 && out.length < count; k--) out.push(date)
+  }
+  return out
+}
+
+/** Film-list order: videos with no posting day first (by number), then by posting day. */
+export const byPostOrder = (a: Video, b: Video) => (a.postDate ?? '').localeCompare(b.postDate ?? '') || a.no - b.no
 
 export function videosInWeek(d: Deal, start: string) {
   let n = 0

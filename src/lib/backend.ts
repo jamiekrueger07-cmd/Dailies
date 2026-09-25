@@ -158,6 +158,7 @@ const videoFromRow = (r: any): Video => ({
   revision: r.revision ?? '',
   status: r.status,
   sortOrder: r.sort_order,
+  postDate: r.post_date ?? null,
 })
 const videoToRow = (v: Video, user_id: string) => ({
   id: v.id,
@@ -171,6 +172,8 @@ const videoToRow = (v: Video, user_id: string) => ({
   revision: v.revision,
   status: v.status,
   sort_order: v.sortOrder,
+  // Only sent when set, so saving still works on a database without the post_date column yet.
+  ...(v.postDate ? { post_date: v.postDate } : {}),
 })
 
 const scriptFromRow = (r: any): Script => ({
