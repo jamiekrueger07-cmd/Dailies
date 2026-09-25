@@ -693,3 +693,34 @@ create trigger profiles_apply_comp before insert or update on public.profiles
 insert into public.comp_accounts (email, plan, note) values ('jamie.krueger07@gmail.com', 'plus', 'Owner')
   on conflict (email) do update set plan = excluded.plan;
 update public.profiles set email = email where lower(email) in (select email from public.comp_accounts);
+
+-- =====================================================================
+-- v13 (Sept 24): the account each brand's videos go up on
+-- =====================================================================
+alter table public.deals add column if not exists handle text not null default '';
+alter table public.deals drop constraint if exists deals_handle_len;
+alter table public.deals add constraint deals_handle_len check (char_length(handle) <= 100) not valid;
+
+-- Shared reports say which account the posts are on.
+create or replace function public.get_shared_report(share_token text) returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object(
+    'month', s.month,
+    'creator_name', s.creator_name,
+    'deal', json_build_object(
+      'id', d.id, 'name', d.name, 'color', d.color, 'quota_mode', d.quota_mode,
+      'videos_per_day', d.videos_per_day, 'videos_per_week', d.videos_per_week,
+      'needs_approval', d.needs_approval, 'platforms', d.platforms, 'handle', d.handle,
+      'start_date', d.start_date, 'end_date', d.end_date, 'film_day', null, 'status', d.status
+    ),
+    'checks', coalesce((
+      select json_agg(json_build_object('deal_id', c.deal_id, 'date', c.date, 'video_no', c.video_no, 'platform', c.platform, 'link', c.link, 'views', c.views))
+      from public.post_checks c
+      where c.deal_id = s.deal_id and c.user_id = s.user_id and to_char(c.date, 'YYYY-MM') = s.month
+    ), '[]'::json)
+  )
+  from public.report_shares s join public.deals d on d.id = s.deal_id and d.user_id = s.user_id
+  where s.token = share_token
+$$;
+revoke all on function public.get_shared_report(text) from public;
+grant execute on function public.get_shared_report(text) to anon, authenticated;
