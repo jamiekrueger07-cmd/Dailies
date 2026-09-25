@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { backend } from '../lib/backend'
 import { useApp } from '../state'
 import { Wordmark } from '../components/Brand'
+import { track } from '../lib/track'
 import { useTitle } from '../lib/title'
 
 export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
@@ -32,6 +33,7 @@ export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
         await backend.signIn(email, password)
       } else {
         const { needsConfirm } = await backend.signUp(email, password, name)
+        track('Sign up')
         if (needsConfirm) {
           setNote('Check your email for a link to confirm your account, then log in.')
           return

@@ -15,7 +15,7 @@ import { useTitle } from '../lib/title'
 
 // Plain-language terms. Worth a quick review by a lawyer before taking real payments.
 const CONTACT = 'support@dailies.digital'
-const UPDATED = 'September 24, 2026'
+const UPDATED = 'September 25, 2026'
 
 function Mail() {
   return <a href={`mailto:${CONTACT}`}>{CONTACT}</a>
@@ -142,12 +142,12 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
             <li>Stripe: processes payments. Your card details go straight to Stripe; we never see or store your full card number.</li>
             <li>Anthropic: writes AI scripts when you use the AI writer.</li>
             <li>Resend: sends reminder and account emails.</li>
-            <li>Vercel: hosts the website.</li>
+            <li>Vercel: hosts the website and counts visits (pages viewed, rough location, device type) without cookies and without identifying you.</li>
           </ul>
 
           <h3>Cookies and storage</h3>
           <p>
-            We use your browser's storage only to keep you logged in and remember simple settings. No advertising or tracking cookies.
+            We use your browser's storage only to keep you logged in and remember simple settings. Visit counts use no cookies. No advertising or tracking cookies.
           </p>
 
           <h3>Keeping and deleting your data</h3>

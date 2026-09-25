@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Wordmark } from '../components/Brand'
 import { dealProblem, FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
 import { useApp } from '../state'
+import { track } from '../lib/track'
 import { useTitle } from '../lib/title'
 
 export const PENDING_KEY = 'dailies:pendingDeals'
@@ -88,6 +89,7 @@ export function OnboardingPage() {
   const finish = async (list: Deal[]) => {
     setBusy(true)
     const ok = await saveDeals(clean(list))
+    if (ok) track('Onboarding done', { brands: list.length })
     setBusy(false)
     if (ok) nav('/app', { replace: true })
   }
