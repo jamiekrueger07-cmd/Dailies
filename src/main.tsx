@@ -11,6 +11,7 @@ import { LandingPage } from './pages/Landing'
 import { AuthPage, ResetPasswordPage } from './pages/Auth'
 const TodayPage = lazy(() => import('./pages/Today').then((m) => ({ default: m.TodayPage })))
 const FilmPage = lazy(() => import('./pages/Film').then((m) => ({ default: m.FilmPage })))
+const ShootPage = lazy(() => import('./pages/Shoot').then((m) => ({ default: m.ShootPage })))
 const ReportPage = lazy(() => import('./pages/Report').then((m) => ({ default: m.ReportPage })))
 const AiPage = lazy(() => import('./pages/Ai').then((m) => ({ default: m.AiPage })))
 const DealsPage = lazy(() => import('./pages/Deals').then((m) => ({ default: m.DealsPage })))
@@ -118,6 +119,7 @@ function AppRoutes() {
       <Routes>
         <Route index element={<TodayPage />} />
         <Route path="film" element={<FilmPage />} />
+        <Route path="film/shoot" element={<ShootPage />} />
         <Route path="ai" element={<AiPage />} />
         <Route path="report" element={<ReportPage />} />
         <Route path="deals" element={<DealsPage />} />
