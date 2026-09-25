@@ -55,7 +55,7 @@ const jump = (id: string) => (e: { preventDefault(): void }) => {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
 }
 
-const FAQ = [
+export const FAQ = [
   ['Who is Dailies for?', 'UGC creators and influencers working with more than one brand at a time, especially deals with daily or weekly quotas across TikTok, Instagram, YouTube, Facebook and Snapchat.'],
   ['Why not just use a spreadsheet or Notion?', 'You can, until you have three brands. Dailies knows each deal\u2019s quota and platforms, so it builds today\u2019s list for you, flags anything you missed, and turns it into a report the brand can open. No formulas to keep up.'],
   ['Is the Free plan actually free?', `Yes. Free covers ${FREE_DEAL_LIMIT} brand deals with the full daily checklist and film list. No card, no time limit.`],
