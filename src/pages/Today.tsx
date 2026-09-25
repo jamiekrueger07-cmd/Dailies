@@ -58,7 +58,10 @@ export function LockedNote() {
 
 /** One video: a button per platform, "All" to post everywhere at once, and a drawer for the live post links. */
 function VideoRow({ row }: { row: Row }) {
-  const { toggleCheck, setChecks, setLink, checks } = useApp()
+  const { toggleCheck, setChecks, setLink, checks, videos, scripts } = useApp()
+  // The film-list video scheduled for this slot: the Nth one dated this day for this brand.
+  const planned = videos.filter((v) => v.dealId === row.dealId && v.postDate === row.date).sort((a, b) => a.no - b.no)[row.videoNo - 1]
+  const plannedScript = planned ? scripts.find((s) => s.videoId === planned.id) : undefined
   const [open, setOpen] = useState(false)
   const base = { dealId: row.dealId, date: row.date, videoNo: row.videoNo }
   const plats = PLATFORMS.filter((p) => row.platforms.includes(p.id))
@@ -107,6 +110,16 @@ function VideoRow({ row }: { row: Row }) {
           All
         </button>
       </div>
+      {planned && (planned.hook || plannedScript) && (
+        <div className="vid-plan small">
+          <span className="muted">Post:</span> <span className="vid-plan-t">{plannedScript?.title || planned.hook}</span>
+          {plannedScript && (
+            <Link className="btn link tiny" to={`/app/film?week=${planned.weekStart}&script=${plannedScript.id}`}>
+              Script
+            </Link>
+          )}
+        </div>
+      )}
       {open && (
         <div className="links">
           <p className="muted tiny">Paste the live post links. They show up on the proof of posting you send the brand.</p>

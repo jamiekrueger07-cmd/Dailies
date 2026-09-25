@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
-import { addDays, nextStatus, statusLabel, today, uid, videosInWeek, weekLabel, weekStart, type Deal, type Video, type VideoStatus } from '../lib/model'
+import { Link, useSearchParams } from 'react-router-dom'
+import { addDays, byPostOrder, nextStatus, statusLabel, today, uid, videosInWeek, weekLabel, weekStart, type Deal, type Video, type VideoStatus } from '../lib/model'
 import { useApp } from '../state'
 import { LockedNote } from './Today'
 import { ScriptsView } from './Scripts'
@@ -50,6 +50,7 @@ function VideoLine({
       <div className="vline">
         <button className="vno" onClick={onToggle} aria-expanded={open} title="Script and notes">
           {String(video.no).padStart(2, '0')}
+          {video.postDate && <small className="vday">{new Date(video.postDate + 'T12:00').toLocaleDateString('en-US', { weekday: 'short' })} {Number(video.postDate.slice(8))}</small>}
         </button>
         <input
           className="vhook"
@@ -118,16 +119,20 @@ function VideoLine({
 export function FilmPage() {
   useTitle('Film')
   const { trackedDeals, videos, putVideos, dropVideos, scripts, putScripts } = useApp()
-  const [week, setWeek] = useState(weekStart(today()))
+  // /app/film?week=2026-09-28&script=<id> opens that script (Today links here).
+  const [params] = useSearchParams()
+  const linked = params.get('script')
+  const [week, setWeek] = useState(() => (/^\d{4}-\d{2}-\d{2}$/.test(params.get('week') ?? '') ? weekStart(params.get('week')!) : weekStart(today())))
   const [open, setOpen] = useState<string | null>(null)
   const [view, setView] = useState<'shots' | 'scripts'>(() => {
+    if (linked) return 'scripts'
     try {
       return localStorage.getItem('dailies:filmView') === 'scripts' ? 'scripts' : 'shots'
     } catch {
       return 'shots'
     }
   })
-  const [focus, setFocus] = useState<string | null>(null)
+  const [focus, setFocus] = useState<string | null>(linked)
   const pickView = (v: 'shots' | 'scripts') => {
     setView(v)
     setFocus(null)
@@ -266,7 +271,7 @@ export function FilmPage() {
         </button>
       )}
       {active.map((d) => {
-        const vs = list.filter((v) => v.dealId === d.id).sort((a, b) => a.no - b.no)
+        const vs = list.filter((v) => v.dealId === d.id).sort(byPostOrder)
         if (!vs.length) return null
         const r = vs.filter((v) => v.status === 'ready').length
         return (

@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { addDays, today, weekLabel, weekStart, type Deal, type Script, type Video } from '../lib/model'
+import { addDays, byPostOrder, today, weekLabel, weekStart, type Deal, type Script, type Video } from '../lib/model'
 import { useApp } from '../state'
 import { useTitle } from '../lib/title'
 import { readSeconds, Teleprompter, type PrompterItem } from '../components/Teleprompter'
@@ -33,7 +33,7 @@ export function ShootPage() {
   const rows = useMemo(() => {
     const out: Row[] = []
     for (const d of deals) {
-      const vs = videos.filter((v) => v.dealId === d.id && v.weekStart === week).sort((a, b) => a.no - b.no)
+      const vs = videos.filter((v) => v.dealId === d.id && v.weekStart === week).sort(byPostOrder)
       for (const v of vs) {
         const sc = scripts.find((s) => s.videoId === v.id) ?? null
         out.push({ key: v.id, deal: d, video: v, script: sc, label: `Vid ${v.no}`, setup: (sc?.format || v.format || '').trim(), secs: sc ? readSeconds(sc) : 0 })

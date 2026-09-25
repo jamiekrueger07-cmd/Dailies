@@ -13,6 +13,7 @@ import {
   SCRIPT_TONES,
   STEP_KINDS,
   parse,
+  postingSlots,
   today,
   weekStart,
   type Deal,
@@ -31,6 +32,8 @@ import { IconAi } from '../components/Brand'
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 
 // ---------- weeks ----------
+/** "Mon, Sep 28" */
+export const postDay = (d: string) => parse(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 const wkShort = (w: string) => parse(w).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 /** "Week of Sep 28 (this week)" */
 const wkName = (w: string, short = false) => {
@@ -356,11 +359,14 @@ export function AiWriter({
   const [preview, setPreview] = useState<number | null>(null)
   // The creator's own note about the brief: the AI follows it, and it's saved on each card.
   const [briefNotes, setBriefNotes] = useState('')
-  // Which week each draft goes in: week 1 of the brief lands on startWeek, week 2 the week after, and so on.
-  const [startWeek, setStartWeek] = useState(week)
+  // Scripts keep the brief's order and take the brand's posting days one after another, starting here.
+  const [firstDate, setFirstDate] = useState(() => (week === weekStart(today()) ? today() : week))
   const [meta, setMeta] = useState<{ i: number; w: number }[]>([])
-  const [moved, setMoved] = useState<Record<number, string>>({})
-  const weekOf = (k: number) => moved[meta[k]?.i] ?? addDays(startWeek, 7 * ((meta[k]?.w ?? 1) - 1))
+  // Picked drafts in the brief's own order, each matched to its posting day.
+  const orderedPicked = drafts ? drafts.map((_, k) => k).filter((k) => picked.has(meta[k]?.i ?? k)).sort((a, b) => (meta[a]?.i ?? a) - (meta[b]?.i ?? b)) : []
+  const slots = postingSlots(deal, /^\d{4}-\d{2}-\d{2}$/.test(firstDate) ? firstDate : today(), orderedPicked.length)
+  const dateOf = (k: number): string | null => slots[orderedPicked.indexOf(k)] ?? null
+  const weekOf = (k: number) => weekStart(dateOf(k) ?? firstDate)
   const [saving, setSaving] = useState(false)
   // picked and preview hold each draft's original position in the brief, so cards arriving out of order don't shift them.
   const idOf = (k: number) => meta[k]?.i ?? k
@@ -375,7 +381,6 @@ export function AiWriter({
   const oneShot = async (req: Parameters<typeof backend.aiScripts>[0]) => {
     const res = await backend.aiScripts(req)
     setMeta(res.scripts.map((_, i) => ({ i, w: 1 })))
-    setMoved({})
     setDrafts(res.scripts)
     setNote(res.note ?? '')
     setPicked(new Set(res.scripts.map((_, i) => i)))
@@ -400,7 +405,6 @@ export function AiWriter({
     setNote(msg)
     setDrafts([])
     setMeta([])
-    setMoved({})
     setPicked(new Set())
     setPreview(null)
     setProgress({ done: 0, total: videos.length, waiting: false })
@@ -507,8 +511,8 @@ export function AiWriter({
     setErr('')
     const note = mode === 'ai' ? '' : briefNotes.trim()
     const byWeek = new Map<string, { k: number; d: ScriptDraft }[]>()
-    drafts.forEach((d, k) => {
-      if (!picked.has(idOf(k))) return
+    orderedPicked.forEach((k) => {
+      const d = drafts[k]
       const w = weekOf(k)
       const withNote = note ? { ...d, notes: `• Your note: ${note}${d.notes ? '\n' + d.notes : ''}` } : d
       byWeek.set(w, [...(byWeek.get(w) ?? []), { k, d: withNote }])
@@ -517,7 +521,7 @@ export function AiWriter({
     let n = 0
     for (const w of [...byWeek.keys()].sort()) {
       const group = byWeek.get(w)!
-      const ok = await addScripts(deal.id, w, group.map((g) => g.d), mode === 'ai' ? 'ai' : 'brief', { quiet: true })
+      const ok = await addScripts(deal.id, w, group.map((g) => g.d), mode === 'ai' ? 'ai' : 'brief', { quiet: true, postDates: group.map((g) => dateOf(g.k)) })
       if (!alive.current) return
       if (!ok) {
         // Keep what didn't save on screen so nothing paid for is lost; drop the weeks that did save.
@@ -736,9 +740,12 @@ export function AiWriter({
           )}
           {drafts.length > 0 && (
             <label className="draft-start">
-              {meta.some((m) => m.w > 1) ? 'Week 1 of the brief goes in' : 'Add them to'}
-              <WeekSelect id="draft-start" label="Starting week" value={startWeek} onChange={setStartWeek} />
-              {meta.some((m) => m.w > 1) && <span className="muted tiny">Week 2 goes in the week after, and so on. Change any script's week below.</span>}
+              First one posts on
+              <input id="draft-start" type="date" value={firstDate} onChange={(e) => e.target.value && setFirstDate(e.target.value)} />
+              <span className="muted tiny">
+                The rest follow in this order, one per posting day for this brand.
+                {slots.length < orderedPicked.length ? ' Some have no posting day (the deal ends or is paused), so they stay unscheduled.' : ''}
+              </span>
             </label>
           )}
           {drafts.map((d, i) => (
@@ -761,10 +768,8 @@ export function AiWriter({
                   {preview === idOf(i) ? 'Hide' : 'Preview'}
                 </button>
               </label>
-              {mode !== 'ai' && (
-                <div className="draft-week">
-                  <WeekSelect short label={`Week for ${d.title || 'this script'}`} value={weekOf(i)} onChange={(w) => setMoved((m) => ({ ...m, [meta[i].i]: w }))} />
-                </div>
+              {picked.has(idOf(i)) && (
+                <div className="draft-week muted small">{dateOf(i) ? postDay(dateOf(i)!) : 'No posting day'}</div>
               )}
               {preview === idOf(i) && (
                 <div className="draft-preview">
