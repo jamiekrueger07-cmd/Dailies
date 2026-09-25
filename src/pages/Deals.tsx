@@ -82,6 +82,7 @@ export function DealsPage() {
               {d.needsApproval && <> · needs approval</>}
               {paySummary(d) && <> · {paySummary(d)}</>}
               {d.endDate && <> · ends {d.endDate}</>}
+              {d.handle && <> · {d.handle}</>}
               {d.contact && <> · {d.contact}</>}
             </div>
             {locked && <p className="small muted">Not tracked on the Free plan. Upgrade to track it again, or delete it to make room.</p>}

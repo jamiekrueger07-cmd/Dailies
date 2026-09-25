@@ -13,6 +13,9 @@ import {
   weekDays,
   weekStart,
   checkKey,
+  parse,
+  type Check,
+  type Deal,
   type Row,
 } from '../lib/model'
 import { useApp } from '../state'
@@ -168,9 +171,122 @@ function FirstDayTips() {
   )
 }
 
+const dayDiff = (a: string, b: string) => Math.round((parse(b).getTime() - parse(a).getTime()) / 864e5)
+const DISMISS_KEY = 'dailies:endAlerts'
+
+/** Deals ending in the next week (or that ended in the last week but are still active): renew or wrap up. */
+function EndingAlerts({ deals }: { deals: Deal[] }) {
+  const t = today()
+  const [gone, setGone] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(DISMISS_KEY) || '[]')
+    } catch {
+      return []
+    }
+  })
+  const list = deals
+    .filter((d) => d.status === 'active' && d.endDate)
+    .map((d) => ({ d, n: dayDiff(t, d.endDate!) }))
+    .filter(({ d, n }) => n >= -7 && n <= 7 && !gone.includes(`${d.id}|${d.endDate}`))
+    .sort((a, b) => a.n - b.n)
+  if (!list.length) return null
+  const hide = (key: string) => {
+    const next = [...gone, key].slice(-50)
+    setGone(next)
+    try {
+      localStorage.setItem(DISMISS_KEY, JSON.stringify(next))
+    } catch {
+      /* optional */
+    }
+  }
+  return (
+    <>
+      {list.map(({ d, n }) => (
+        <div key={d.id} className="card end-alert" role="status" style={{ '--brand': d.color } as CSSProperties}>
+          <div className="grow">
+            <b>{d.name}</b>{' '}
+            {n > 1 ? `ends in ${n} days (${shortDate(d.endDate!)}).` : n === 1 ? 'ends tomorrow.' : n === 0 ? 'ends today.' : `ended ${-n} day${n === -1 ? '' : 's'} ago.`}{' '}
+            <span className="muted">{n >= 0 ? 'Time to ask about renewing, or plan your last posts.' : 'Mark it paused in Deals, or push the end date if it was extended.'}</span>
+          </div>
+          <div className="end-alert-actions">
+            <Link className="btn small" to="/app/deals">
+              Open deal
+            </Link>
+            <button className="btn link small" onClick={() => hide(`${d.id}|${d.endDate}`)}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+/** Oldest-first plan to clear missed videos: a couple of extra a day on top of the normal quota. */
+function catchUpPlan(missed: Row[]) {
+  const n = missed.length
+  const days = Math.min(7, Math.max(1, Math.ceil(n / 2)))
+  const perDay = Math.ceil(n / days)
+  const oldest = [...missed].sort((a, b) => a.date.localeCompare(b.date) || a.videoNo - b.videoNo)
+  const t = today()
+  return Array.from({ length: days }, (_, i) => {
+    const part = oldest.slice(i * perDay, (i + 1) * perDay)
+    const byBrand = new Map<string, { deal: Deal; n: number }>()
+    for (const r of part) byBrand.set(r.dealId, { deal: r.deal, n: (byBrand.get(r.dealId)?.n ?? 0) + 1 })
+    return { date: addDays(t, i), items: [...byBrand.values()], count: part.length }
+  }).filter((d) => d.count > 0)
+}
+
+/** "Luma Skin · Thu, Sep 24 (@handle)\nVid 1: TikTok ✓ · Instagram ✓\n  link…" for pasting into a brand's Discord or Slack. */
+export function postingUpdate(deal: Deal, date: string, rows: Row[], checks: Map<string, Check>) {
+  const lines = [`${deal.name} · ${shortDate(date)}${deal.handle ? ` (${deal.handle})` : ''}`]
+  for (const r of rows) {
+    const label = (id: string) => PLATFORMS.find((p) => p.id === id)?.label ?? id
+    lines.push(`Vid ${r.videoNo}: ${r.platforms.map((p) => `${label(p)} ${r.checked.has(p) ? '✓' : '– not yet'}`).join(' · ')}`)
+    for (const p of r.platforms) {
+      const link = checks.get(checkKey({ dealId: r.dealId, date: r.date, videoNo: r.videoNo, platform: p }))?.link
+      if (link) lines.push(`  ${label(p)}: ${link}`)
+    }
+  }
+  const o = rows.reduce((n, r) => n + r.platforms.length, 0)
+  const p = rows.reduce((n, r) => n + r.posted, 0)
+  lines.push(`${p}/${o} posts up`)
+  return lines.join('\n')
+}
+
+function CatchUp({ missed }: { missed: Row[] }) {
+  const [open, setOpen] = useState(false)
+  const plan = catchUpPlan(missed)
+  const per = plan[0]?.count ?? 0
+  return (
+    <div className="catchup">
+      <button className="catchup-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <b>Catch-up plan</b>
+        <span className="muted small">
+          {plan.length === 1 ? `Post ${per} extra today and you're even.` : `${per} extra a day for ${plan.length} days, oldest first.`}
+        </span>
+        <span className="chev" aria-hidden="true">{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <ol className="catchup-days">
+          {plan.map((d, i) => (
+            <li key={d.date}>
+              <b>{i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : shortDate(d.date)}</b>
+              <span className="muted small">
+                {' '}
+                +{d.count}: {d.items.map((x) => `${x.deal.name}${x.n > 1 ? ` ×${x.n}` : ''}`).join(', ')}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
 export function TodayPage() {
   useTitle('Today')
-  const { trackedDeals: deals, checks, videos } = useApp()
+  const { trackedDeals: deals, checks, videos, flash } = useApp()
   const [date, setDate] = useState(today())
   // If the app stays open past midnight, roll over to the new day (and refresh missed posts and the streak).
   const [day, setDay] = useState(today())
@@ -241,6 +357,7 @@ export function TodayPage() {
 
       <LockedNote />
       {deals.length > 0 && <FirstDayTips />}
+      {isToday && <EndingAlerts deals={deals} />}
 
       {deals.length === 0 && (
         <div className="empty card">
@@ -282,12 +399,30 @@ export function TodayPage() {
             <div className="deal-head">
               <b>{deal.name}</b>
               <span className="muted small">
+                {deal.handle && <span className="deal-handle">{deal.handle} · </span>}
                 {p}/{o}
               </span>
             </div>
             {rows.map((r) => (
               <VideoRow key={`${r.dealId}-${r.date}-${r.videoNo}`} row={r} />
             ))}
+            {p > 0 && (
+              <div className="deal-actions">
+                <button
+                  className="btn small"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(postingUpdate(deal, date, rows, checks))
+                      flash(`Update for ${deal.name} copied. Paste it in their Discord or Slack.`)
+                    } catch {
+                      flash('Could not copy')
+                    }
+                  }}
+                >
+                  Copy posting update
+                </button>
+              </div>
+            )}
           </section>
         )
       })}
@@ -331,6 +466,7 @@ export function TodayPage() {
             </button>
           ))}
           {missed.length > 12 && <div className="muted small pad">and {missed.length - 12} more</div>}
+          {isToday && missed.length > 1 && <CatchUp missed={missed} />}
         </section>
       )}
 

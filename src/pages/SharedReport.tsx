@@ -57,6 +57,7 @@ export function SharedReportPage() {
           <p className="muted">
             {monthLabel(`${data.month}-01`)}
             {data.creatorName && <> · Prepared by {data.creatorName}</>}
+            {data.deal.handle && <> · Posted on {data.deal.handle}</>}
           </p>
         </div>
         <button className="btn no-print" onClick={() => window.print()}>

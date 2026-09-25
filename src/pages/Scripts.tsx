@@ -68,6 +68,61 @@ export function StepLine({ s }: { s: ScriptStep }) {
   )
 }
 
+/** "3 new hooks": the AI suggests fresh openings; one tap swaps it in (the old one stays in the list to swap back). */
+function HookIdeas({ sc }: { sc: Script }) {
+  const { isPro, openUpgrade, putScripts, trackedDeals, flash } = useApp()
+  const [ideas, setIdeas] = useState<string[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const brand = trackedDeals.find((d) => d.id === sc.dealId)?.name ?? 'the brand'
+  const get = async () => {
+    if (!isPro) return openUpgrade('Get fresh hooks')
+    setBusy(true)
+    try {
+      const hooks = await backend.altHooks({ brand, script: { hook: sc.hook, format: sc.format, lines: sc.steps.filter((s) => s.kind === 'say').map((s) => s.text) } })
+      setIdeas(hooks)
+    } catch (e: any) {
+      flash(e.message || 'Could not get new hooks')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const use = async (h: string) => {
+    const old = sc.hook.trim()
+    // The hook often also appears as the first line or on-screen text: swap those too.
+    const steps = sc.steps.map((s) => ((s.kind === 'say' || s.kind === 'text') && old && s.text.trim() === old ? { ...s, text: h } : s))
+    const ok = await putScripts([{ ...sc, hook: h, steps }])
+    if (ok) {
+      setIdeas((cur) => (cur ? [...cur.filter((x) => x !== h), ...(old ? [old] : [])] : cur))
+      flash('Hook swapped')
+    }
+  }
+  return (
+    <div className="hook-ideas">
+      {!ideas ? (
+        <button className="btn small" onClick={get} disabled={busy}>
+          {busy ? 'Thinking…' : 'Try 3 new hooks'}
+          {!isPro && <ProBadge />}
+        </button>
+      ) : (
+        <>
+          <span className="st-k">Other hooks</span>
+          {ideas.map((h) => (
+            <div className="hook-idea" key={h}>
+              <span>“{h}”</span>
+              <button className="btn small" onClick={() => use(h)}>
+                Use this
+              </button>
+            </div>
+          ))}
+          <button className="btn link small" onClick={get} disabled={busy}>
+            {busy ? 'Thinking…' : '3 more'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function ScriptCard({ sc, no, onEdit, defaultOpen = false }: { sc: Script; no: number | null; onEdit: () => void; defaultOpen?: boolean }) {
   const { toggleScriptDone, dropScripts, flash, moveScript } = useApp()
   const [open, setOpen] = useState(defaultOpen)
@@ -114,6 +169,7 @@ function ScriptCard({ sc, no, onEdit, defaultOpen = false }: { sc: Script; no: n
               <span>“{sc.hook}”</span>
             </div>
           )}
+          <HookIdeas sc={sc} />
           <div className="scr-steps">
             {sc.steps.map((s, i) => (
               <StepLine key={i} s={s} />
