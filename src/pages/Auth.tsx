@@ -20,6 +20,9 @@ export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  // Set once the account exists but the email isn't confirmed yet: shows the "type your code" screen.
+  const [confirmFor, setConfirmFor] = useState<string | null>(null)
+  const done = () => nav(wantsPro ? '/app/account' : '/app', { replace: true })
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -34,14 +37,16 @@ export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
       } else {
         const { needsConfirm } = await backend.signUp(email, password, name)
         track('Sign up')
-        if (needsConfirm) {
-          setNote('Check your email for a link to confirm your account, then log in.')
-          return
-        }
+        if (needsConfirm) return setConfirmFor(email.trim())
       }
       await refresh()
-      nav(wantsPro ? '/app/account' : '/app', { replace: true })
+      done()
     } catch (e: any) {
+      // Signed up earlier but never confirmed: send a fresh code and ask for it right here.
+      if (mode === 'in' && /not confirmed/i.test(e?.message ?? '')) {
+        backend.resendSignup(email).catch(() => {})
+        return setConfirmFor(email.trim())
+      }
       setErr(e.message || 'Something went wrong')
     } finally {
       setBusy(false)
@@ -57,6 +62,18 @@ export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
       setErr(e.message || 'Could not send reset email')
     }
   }
+
+  if (confirmFor)
+    return (
+      <ConfirmCode
+        email={confirmFor}
+        onBack={() => setConfirmFor(null)}
+        onDone={async () => {
+          await refresh()
+          done()
+        }}
+      />
+    )
 
   return (
     <div className="auth">
@@ -131,6 +148,96 @@ export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
           </Link>
         )}
         {backend.mode === 'preview' && <p className="muted tiny center">Preview: accounts are saved in this browser only and no emails are sent. On the live site your account and data are stored securely online.</p>}
+      </div>
+    </div>
+  )
+}
+
+/** Step 2 of sign-up: type the code from the email, so nobody gets bounced to a new tab by a link. */
+function ConfirmCode({ email, onBack, onDone }: { email: string; onBack: () => void; onDone: () => Promise<void> }) {
+  useTitle('Check your email')
+  const [code, setCode] = useState('')
+  const [err, setErr] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [wait, setWait] = useState(0)
+  useEffect(() => {
+    if (wait <= 0) return
+    const t = setTimeout(() => setWait(wait - 1), 1000)
+    return () => clearTimeout(t)
+  }, [wait])
+  // The link in the email still works too; if they used it in this browser, carry on.
+  const { userId } = useApp()
+  useEffect(() => {
+    if (userId) void onDone()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId])
+
+  const verify = async (e: FormEvent) => {
+    e.preventDefault()
+    setErr('')
+    setBusy(true)
+    try {
+      await backend.verifySignup(email, code)
+      await onDone()
+    } catch (e: any) {
+      setErr(e.message || 'Something went wrong')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const resend = async () => {
+    setErr('')
+    setNote('')
+    try {
+      await backend.resendSignup(email)
+      setNote('New code sent. It can take a minute to arrive.')
+      setWait(45)
+    } catch (e: any) {
+      setErr(e.message || 'Could not send a new code')
+    }
+  }
+
+  return (
+    <div className="auth">
+      <div className="auth-card">
+        <Link to="/" className="brand">
+          <Wordmark />
+        </Link>
+        <h1>Check your email</h1>
+        <p className="muted">
+          We sent a code to <b className="code-email">{email}</b>. Type it here to finish setting up.
+        </p>
+        <form onSubmit={verify}>
+          <label>
+            Code
+            <input
+              className="code-input"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              placeholder="••••••"
+              aria-describedby="code-help"
+            />
+          </label>
+          {err && <div className="error">{err}</div>}
+          {note && <div className="note">{note}</div>}
+          <button className="btn primary block lg" disabled={busy || code.length < 6}>
+            {busy ? 'One sec…' : 'Confirm and continue'}
+          </button>
+        </form>
+        <p id="code-help" className="muted small center">
+          Not there? Check spam or promotions. From <b>no-reply@dailies.digital</b>.
+        </p>
+        <button className="btn link block" onClick={resend} disabled={wait > 0}>
+          {wait > 0 ? `Send a new code (${wait}s)` : 'Send a new code'}
+        </button>
+        <button className="btn link block" onClick={onBack}>
+          Wrong email? Go back
+        </button>
+        {backend.mode === 'preview' && <p className="muted tiny center">Preview: no email is sent, so any 6 digits work.</p>}
       </div>
     </div>
   )

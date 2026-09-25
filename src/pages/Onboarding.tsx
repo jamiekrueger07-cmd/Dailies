@@ -5,6 +5,7 @@ import { dealProblem, FREE_DEAL_LIMIT, newDeal, PLATFORMS, videosPerWeek, type D
 import { useApp } from '../state'
 import { track } from '../lib/track'
 import { useTitle } from '../lib/title'
+import { skipKey } from '../lib/skip'
 
 export const PENDING_KEY = 'dailies:pendingDeals'
 
@@ -68,7 +69,7 @@ const isEmpty = (d: Deal) => !d.name.trim() && d.platforms.length === 0
 
 export function OnboardingPage() {
   useTitle('Set up')
-  const { saveDeals, isPro, openUpgrade } = useApp()
+  const { saveDeals, isPro, openUpgrade, userId } = useApp()
   const nav = useNavigate()
   const [step, setStep] = useState<1 | 2>(1)
   const [deals, setDeals] = useState<Deal[]>(() => [blank(0)])
@@ -92,6 +93,15 @@ export function OnboardingPage() {
     if (ok) track('Onboarding done', { brands: list.length })
     setBusy(false)
     if (ok) nav('/app', { replace: true })
+  }
+  const skip = () => {
+    try {
+      localStorage.setItem(skipKey(userId ?? ''), '1')
+    } catch {
+      /* storage blocked: they'll see this screen again next time */
+    }
+    track('Onboarding skipped')
+    nav('/app', { replace: true })
   }
   const goPro = () => {
     try {
@@ -133,6 +143,9 @@ export function OnboardingPage() {
               </button>
             </div>
             {problem && filled.length > 0 && <p className="muted small">{problem}</p>}
+            <button type="button" className="btn link small onboard-skip" onClick={skip}>
+              No brand deals yet? Skip for now
+            </button>
           </>
         )}
         {step === 2 && (

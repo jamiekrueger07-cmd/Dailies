@@ -360,11 +360,18 @@ export function TodayPage() {
       {isToday && <EndingAlerts deals={deals} />}
 
       {deals.length === 0 && (
-        <div className="empty card">
-          <p>No brand deals yet.</p>
-          <Link className="btn primary" to="/app/deals">
-            Add your first deal
+        <div className="card start-card">
+          <h2>Add your first brand</h2>
+          <p className="muted">Once a brand's in, Today builds itself. Here's how it works:</p>
+          <ol>
+            <li>Add the brand, how many videos you owe and where they get posted.</li>
+            <li>Every morning, Today lists exactly what's due.</li>
+            <li>Tap each platform once the post is live, and share proof with the brand in one link.</li>
+          </ol>
+          <Link className="btn primary block" to="/app/deals">
+            Add a brand
           </Link>
+          <p className="muted small">No deals yet? Look around. Film and Report fill in once you add one.</p>
         </div>
       )}
 
