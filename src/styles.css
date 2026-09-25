@@ -982,3 +982,4 @@ button.vid-label:hover { color: var(--ink); }
 .vid-plan { display: flex; align-items: baseline; gap: 6px; padding: 2px 2px 8px; min-width: 0; }
 .vid-plan-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .draft-week { padding: 0 0 6px 30px; }
+.missed-fresh { display: block; margin: 8px auto 0; }
