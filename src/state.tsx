@@ -45,6 +45,7 @@ interface AppState {
   dismissToast(): void
   setChecks(cs: Check[], on: boolean, label?: string): Promise<void>
   setLink(c: Check, link: string): Promise<void>
+  setViews(c: Check, views: number | null): Promise<void>
   saveSettings(s: Settings): Promise<void>
   refresh(): Promise<void>
   refreshProfile(): Promise<Profile | null>
@@ -255,15 +256,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (clean === '') return flash('That doesn\'t look like a link. Paste the post\'s full URL.')
     if ((cur?.link ?? null) === clean) return
     const next = new Map(checks)
-    next.set(k, { ...c, link: clean })
+    const saved = { ...c, link: clean, views: cur?.views ?? c.views ?? null }
+    next.set(k, saved)
     setChecks_(next)
     try {
-      await backend.setChecks(userId, [{ ...c, link: clean }], true)
+      await backend.setChecks(userId, [saved], true)
       flash(clean ? 'Link saved' : 'Link removed')
     } catch (e) {
       console.error(e)
       setChecks_((m) => restoreKeys(m, checks, [k]))
       flash('Could not save the link')
+    }
+  }
+
+  const setViews = async (c: Check, views: number | null) => {
+    if (!userId) return
+    const k = checkKey(c)
+    const cur = checks.get(k)
+    if (!cur || (cur.views ?? null) === views) return
+    setChecks_((m) => new Map(m).set(k, { ...cur, views }))
+    try {
+      await backend.setViews(userId, cur, views)
+    } catch (e) {
+      console.error(e)
+      setChecks_((m) => new Map(m).set(k, cur))
+      flash('Could not save the views')
     }
   }
 
@@ -453,6 +470,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dismissToast,
     setChecks,
     setLink,
+    setViews,
     saveSettings,
     refresh,
     refreshProfile,
