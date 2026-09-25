@@ -31,7 +31,7 @@ function QuickDeal({ deal, index, onChange, onRemove }: { deal: Deal; index: num
       </label>
       <div className="quick-quota">
         <label>
-          Videos
+          Videos posted
           <input type="number" min={1} max={deal.quotaMode === 'week' ? 140 : 20} value={n} onChange={(e) => setN(Number(e.target.value))} />
         </label>
         <div className="chips" role="radiogroup" aria-label="How often">

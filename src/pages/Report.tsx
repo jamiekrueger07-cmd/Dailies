@@ -306,7 +306,7 @@ export function ReportPage() {
           {tot.earned > 0 && (
             <div className="stat">
               <div className="stat-n">{usd(Math.round(tot.earned))}</div>
-              <div className="stat-l">earned</div>
+              <div className="stat-l">{month < today().slice(0, 7) ? 'pay for the month' : 'expected this month'}</div>
             </div>
           )}
           {tot.views > 0 && (

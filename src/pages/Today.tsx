@@ -299,7 +299,7 @@ function CatchUp({ missed }: { missed: Row[] }) {
 
 export function TodayPage() {
   useTitle('Today')
-  const { trackedDeals: deals, checks, videos, flash } = useApp()
+  const { trackedDeals: deals, checks, videos, flash, userId } = useApp()
   const [date, setDate] = useState(today())
   // If the app stays open past midnight, roll over to the new day (and refresh missed posts and the streak).
   const [day, setDay] = useState(today())
@@ -322,7 +322,25 @@ export function TodayPage() {
   }, [])
   const isToday = date === day
   const rows = useMemo(() => rowsFor(deals, checks, date), [deals, checks, date, day])
-  const missed = useMemo(() => missedRows(deals, checks), [deals, checks, day])
+  // "Start fresh": missed posts before this date are ignored (for anyone who wasn't tracking yet). Per browser.
+  const freshKey = `dailies:missedFrom:${userId ?? ''}`
+  const [missedFrom, setMissedFrom] = useState<string>(() => {
+    try {
+      return localStorage.getItem(freshKey) ?? ''
+    } catch {
+      return ''
+    }
+  })
+  const startFresh = () => {
+    const t = today()
+    try {
+      localStorage.setItem(freshKey, t)
+    } catch {
+      /* storage blocked: it just won't be remembered */
+    }
+    setMissedFrom(t)
+  }
+  const missed = useMemo(() => missedRows(deals, checks).filter((r) => r.date >= missedFrom), [deals, checks, day, missedFrom])
   const run = useMemo(() => streak(deals, checks), [deals, checks, day])
   const week = useMemo(() => weekDays(date), [date])
   const owed = rows.reduce((n, r) => n + r.platforms.length, 0)
@@ -487,6 +505,9 @@ export function TodayPage() {
           ))}
           {missed.length > 12 && <div className="muted small pad">and {missed.length - 12} more</div>}
           {isToday && missed.length > 1 && <CatchUp missed={missed} />}
+          <button className="btn link small missed-fresh" onClick={startFresh}>
+            Weren't tracking these? Start fresh from today
+          </button>
         </section>
       )}
 
