@@ -341,7 +341,8 @@ export interface MonthLine {
   videosDone: number
   postsOwed: number
   postsDone: number
-  /** Total pay this month, or null when the deal has no pay set up. */
+  /** Pay expected for the whole month (base pay for the full month, per-video pay for every video owed,
+   * plus view pay logged so far), or null when the deal has no pay set up. Dailies can't see what was actually paid. */
   earned: number | null
   pay: Pay
   /** Views logged on this month's posts. */
@@ -418,6 +419,12 @@ export function monthReport(deals: Deal[], checks: Map<string, Check>, month: st
       if (r.done) l.videosDone += 1
     }
   }
+  // Per-video pay is projected over the whole month, so count the videos owed on the days still to come too.
+  const monthVideos = new Map<string, number>()
+  for (let day = 1; day <= last; day++) {
+    const date = `${y}-${pad(m)}-${pad(day)}`
+    for (const d of deals) monthVideos.set(d.id, (monthVideos.get(d.id) ?? 0) + videosOn(d, date))
+  }
   const lines = [...map.values()].filter((l) => l.videosOwed > 0 || l.deal.status === 'active')
   // Views and view pay come from every post made this month (posts only count up to today).
   for (const c of checks.values()) {
@@ -435,8 +442,8 @@ export function monthReport(deals: Deal[], checks: Map<string, Check>, month: st
   }
   for (const l of lines) {
     const d = l.deal
-    l.pay.videos = money(l.videosDone * (d.ratePerVideo ?? 0))
-    l.pay.base = basePayFor(d, month, t)
+    l.pay.videos = money((monthVideos.get(d.id) ?? 0) * (d.ratePerVideo ?? 0))
+    l.pay.base = basePayFor(d, month, `${y}-${pad(m)}-${pad(last)}`)
     l.pay.views = money(l.pay.views)
     if (hasPay(d) || d.ratePerVideo != null) l.earned = money(l.pay.base + l.pay.videos + l.pay.views + l.pay.bonus)
   }
