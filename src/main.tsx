@@ -1,5 +1,6 @@
 import { lazy, StrictMode, Suspense, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { Analytics, type BeforeSendEvent } from '@vercel/analytics/react'
 import { BrowserRouter, HashRouter, Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import './styles.css'
 import { backend } from './lib/backend'
@@ -137,6 +138,15 @@ function PublicOnly({ children }: { children: ReactNode }) {
   return userId ? <Navigate to="/app" replace /> : <>{children}</>
 }
 
+// Page-view counts (cookieless). Share links and one-time links carry private tokens, so those never leave the browser.
+const privateUrls = (e: BeforeSendEvent): BeforeSendEvent => {
+  const u = new URL(e.url)
+  u.search = ''
+  u.hash = ''
+  u.pathname = u.pathname.replace(/^\/r\/[^/]+/, '/r/[shared-report]')
+  return { ...e, url: u.toString() }
+}
+
 // The live site uses clean URLs; the single-file preview uses #/ URLs so it works anywhere.
 const Router = backend.mode === 'preview' ? HashRouter : BrowserRouter
 
@@ -159,6 +169,7 @@ createRoot(document.getElementById('root')!).render(
         </Routes>
         </Suspense>
       </AppProvider>
+      {backend.mode === 'cloud' && <Analytics beforeSend={privateUrls} />}
     </Router>
   </StrictMode>,
 )
