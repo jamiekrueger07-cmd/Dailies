@@ -947,3 +947,20 @@ button.vid-label:hover { color: var(--ink); }
   .tp-bar { gap: 8px; }
 }
 .tp-text { text-align: left; }
+
+/* v22: quick wins */
+.hook-ideas { margin: 8px 0 4px; }
+.hook-ideas .st-k { display: block; margin-bottom: 4px; }
+.hook-idea { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-top: 6px; border: 1px dashed var(--line-strong); border-radius: 5px; font-size: 14px; font-weight: 600; }
+.hook-idea span { flex: 1; min-width: 0; }
+.hook-ideas .btn.link { margin-top: 6px; }
+.end-alert { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 12px 14px; margin-top: 12px; border-left: 3px solid var(--brand, var(--forest)); font-size: 14px; }
+.end-alert .grow { flex: 1 1 220px; }
+.end-alert-actions { display: flex; align-items: center; gap: 6px; }
+.deal-handle { font-weight: 600; }
+.catchup { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.catchup-head { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font: inherit; background: none; border: 0; padding: 6px 0; cursor: pointer; color: var(--ink); }
+.catchup-head .muted { flex: 1; }
+.catchup-head .chev { font-weight: 700; color: var(--muted); }
+.catchup-days { margin: 4px 0 2px; padding-left: 20px; font-size: 14px; }
+.catchup-days li { margin: 4px 0; }
