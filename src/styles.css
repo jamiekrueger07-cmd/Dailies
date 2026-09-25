@@ -976,3 +976,9 @@ button.vid-label:hover { color: var(--ink); }
 .start-card ol { margin: 10px 0 16px; padding-left: 20px; }
 .start-card li { margin: 6px 0; }
 .start-card .btn + .btn { margin-top: 8px; }
+
+/* v24: posting days */
+.vno .vday { display: block; font-size: 10px; font-weight: 600; line-height: 1.1; color: var(--muted); white-space: nowrap; }
+.vid-plan { display: flex; align-items: baseline; gap: 6px; padding: 2px 2px 8px; min-width: 0; }
+.vid-plan-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.draft-week { padding: 0 0 6px 30px; }

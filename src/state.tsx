@@ -58,7 +58,7 @@ interface AppState {
   scripts: Script[]
   putScripts(s: Script[]): Promise<boolean>
   dropScripts(ids: string[]): Promise<void>
-  addScripts(dealId: string, week: string, drafts: ScriptDraft[], source: Script['source'], opts?: { quiet?: boolean }): Promise<boolean>
+  addScripts(dealId: string, week: string, drafts: ScriptDraft[], source: Script['source'], opts?: { quiet?: boolean; postDates?: (string | null)[] }): Promise<boolean>
   toggleScriptDone(s: Script): Promise<void>
   /** Move a saved script to another week (a filmed video goes with it; an unfilmed slot stays with its week). */
   moveScript(s: Script, week: string): Promise<boolean>
@@ -381,7 +381,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // New scripts attach to that brand's film-list videos for the week that don't have a script yet,
   // in order. If there aren't enough videos, new ones are added so every script has a video.
-  const addScripts = async (dealId: string, week: string, drafts: ScriptDraft[], source: Script['source'], opts: { quiet?: boolean } = {}) => {
+  const addScripts = async (dealId: string, week: string, drafts: ScriptDraft[], source: Script['source'], opts: { quiet?: boolean; postDates?: (string | null)[] } = {}) => {
     if (!drafts.length) return true
     const vidsNow = videosRef.current
     const taken = new Set(scriptsRef.current.map((x) => x.videoId).filter(Boolean))
@@ -392,14 +392,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let sOrder = nextSort(scriptsRef.current)
     const newVids: Video[] = []
     const touched: Video[] = []
-    const out: Script[] = drafts.map((d) => {
-      let v = free.shift()
+    const out: Script[] = drafts.map((d, i) => {
+      const postDate = opts.postDates?.[i] ?? null
+      // A dated script takes that day's open video if there is one, then any open one.
+      const at = postDate ? free.findIndex((x) => x.postDate === postDate) : -1
+      let v = at >= 0 ? free.splice(at, 1)[0] : free.shift()
       if (!v) {
-        v = { id: uid(), dealId, weekStart: week, no: ++maxNo, hook: '', format: '', notes: '', revision: '', status: 'idea', sortOrder: vOrder++ }
+        v = { id: uid(), dealId, weekStart: week, no: ++maxNo, hook: '', format: '', notes: '', revision: '', status: 'idea', sortOrder: vOrder++, postDate }
         newVids.push(v)
       }
-      if (!v.hook) {
-        const nv = { ...v, hook: d.hook || d.title, format: v.format || d.format }
+      if (!v.hook || (postDate && v.postDate !== postDate)) {
+        const nv = { ...v, hook: v.hook || d.hook || d.title, format: v.format || d.format, postDate: postDate ?? v.postDate ?? null }
         if (newVids.includes(v)) newVids[newVids.indexOf(v)] = nv
         else touched.push(nv)
         v = nv
