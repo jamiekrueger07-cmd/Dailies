@@ -70,6 +70,19 @@ interface AppState {
 }
 
 const Ctx = createContext<AppState | null>(null)
+
+/**
+ * Logged-out, do-nothing state used only to pre-build the public pages as plain HTML (for search engines).
+ * Any action is a no-op; the real app replaces this page as soon as it loads in the browser.
+ */
+const noop = () => undefined
+const STATIC_STATE = new Proxy({ userId: null, email: null, loading: false, deals: [], trackedDeals: [], videos: [], scripts: [], checks: new Map() } as Record<string, unknown>, {
+  get: (t, k: string) => (k in t ? t[k] : noop),
+}) as unknown as AppState
+export function StaticAppProvider({ children }: { children: ReactNode }) {
+  return <Ctx.Provider value={STATIC_STATE}>{children}</Ctx.Provider>
+}
+
 export const useApp = () => {
   const v = useContext(Ctx)
   if (!v) throw new Error('no app state')
