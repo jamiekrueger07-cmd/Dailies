@@ -4,3 +4,4 @@ dist-preview
 .env
 .env.local
 *.tsbuildinfo
+dist-ssr

@@ -1,10 +1,13 @@
 {
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "rewrites": [
     { "source": "/", "destination": "/index.html" },
-    { "source": "/(login|signup|terms|privacy|reset-password)", "destination": "/index.html" },
-    { "source": "/app", "destination": "/index.html" },
-    { "source": "/app/:path*", "destination": "/index.html" },
-    { "source": "/r/:token", "destination": "/index.html" }
+    { "source": "/(login|signup|terms|privacy)", "destination": "/$1.html" },
+    { "source": "/reset-password", "destination": "/app.html" },
+    { "source": "/app", "destination": "/app.html" },
+    { "source": "/app/:path*", "destination": "/app.html" },
+    { "source": "/r/:token", "destination": "/app.html" }
   ],
   "headers": [
     {
