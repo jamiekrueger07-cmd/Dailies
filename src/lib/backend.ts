@@ -47,6 +47,8 @@ export interface Backend {
   /** Send the sign-up code again. */
   resendSignup(email: string): Promise<void>
   resetPassword(email: string): Promise<void>
+  /** Check the code from the reset email. Logs them in so they can set a new password. */
+  verifyRecovery(email: string, code: string): Promise<void>
   /** Set a new password (after following a reset link, which logs you in). */
   updatePassword(password: string): Promise<void>
   /** Change password from the Account page: checks the current one first. */
@@ -282,9 +284,14 @@ function cloud(sb: SupabaseClient): Backend {
       const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` })
       if (error) throw error
     },
+    async verifyRecovery(email, code) {
+      const { error } = await sb.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'recovery' })
+      if (error) throw /expired|invalid/i.test(error.message) ? new Error('That code isn’t right or has expired. Check the latest email, or send a new code.') : error
+    },
     async updatePassword(password) {
       const { error } = await sb.auth.updateUser({ password })
-      if (error) throw /different from the old/i.test(error.message) ? new Error('Pick a password you haven’t used before.') : error
+      // Setting the password you already have isn't a problem: you're in either way.
+      if (error && !/different from the old/i.test(error.message)) throw error
     },
     async changePassword(current, next) {
       const { data } = await sb.auth.getUser()
@@ -647,6 +654,15 @@ function preview(): Backend {
     },
     async resendSignup() {},
     async resetPassword() {},
+    // Preview: no email is sent, so any 6 digits work.
+    async verifyRecovery(email, code) {
+      const accounts = get<Record<string, PreviewAccount>>('accounts', {})
+      const key = email.trim().toLowerCase()
+      if (!accounts[key]) throw new Error('No account with that email yet. Sign up first.')
+      if (!/^\d{6,8}$/.test(code.trim())) throw new Error('That code isn’t right or has expired. Check the latest email, or send a new code.')
+      set('accounts', { ...accounts, [key]: { ...accounts[key], pending: false } })
+      set('user', { id: accounts[key].id, email: email.trim() })
+    },
     async updatePassword(password) {
       const user = get<User | null>('user', null)
       if (!user?.email) throw new Error('Open the reset link from your email again.')
