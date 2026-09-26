@@ -22,6 +22,8 @@ export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
   const [busy, setBusy] = useState(false)
   // Set once the account exists but the email isn't confirmed yet: shows the "type your code" screen.
   const [confirmFor, setConfirmFor] = useState<string | null>(null)
+  // Set after "Forgot password?": shows the "code + new password" screen.
+  const [resetFor, setResetFor] = useState<string | null>(null)
   const done = () => nav(wantsPro ? '/app/account' : '/app', { replace: true })
 
   const submit = async (e: FormEvent) => {
@@ -54,14 +56,27 @@ export function AuthPage({ mode }: { mode: 'in' | 'up' }) {
   }
 
   const reset = async () => {
+    setErr('')
     if (!email) return setErr('Type your email first, then tap reset.')
     try {
       await backend.resetPassword(email)
-      setNote('If that email has an account, a reset link is on its way.')
+      setResetFor(email.trim())
     } catch (e: any) {
-      setErr(e.message || 'Could not send reset email')
+      setErr(/seconds|rate/i.test(e?.message ?? '') ? 'Give it a minute before sending another code.' : e.message || 'Could not send reset email')
     }
   }
+
+  if (resetFor)
+    return (
+      <ResetCode
+        email={resetFor}
+        onBack={() => setResetFor(null)}
+        onDone={async () => {
+          await refresh()
+          done()
+        }}
+      />
+    )
 
   if (confirmFor)
     return (
@@ -236,6 +251,109 @@ function ConfirmCode({ email, onBack, onDone }: { email: string; onBack: () => v
         </button>
         <button className="btn link block" onClick={onBack}>
           Wrong email? Go back
+        </button>
+        {backend.mode === 'preview' && <p className="muted tiny center">Preview: no email is sent, so any 6 digits work.</p>}
+      </div>
+    </div>
+  )
+}
+
+/** Forgot password: type the code from the email and a new password on the same screen. */
+function ResetCode({ email, onBack, onDone }: { email: string; onBack: () => void; onDone: () => Promise<void> }) {
+  useTitle('Reset password')
+  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [password2, setPassword2] = useState('')
+  const [show, setShow] = useState(false)
+  const [err, setErr] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [wait, setWait] = useState(45)
+  useEffect(() => {
+    if (wait <= 0) return
+    const t = setTimeout(() => setWait(wait - 1), 1000)
+    return () => clearTimeout(t)
+  }, [wait])
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setErr('')
+    if (password.length < 6) return setErr('Use at least 6 characters.')
+    if (password !== password2) return setErr('The two passwords don’t match.')
+    setBusy(true)
+    try {
+      await backend.verifyRecovery(email, code)
+      await backend.updatePassword(password)
+      await onDone()
+    } catch (e: any) {
+      setErr(e.message || 'Something went wrong')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const resend = async () => {
+    setErr('')
+    setNote('')
+    try {
+      await backend.resetPassword(email)
+      setNote('New code sent. It can take a minute to arrive.')
+      setWait(45)
+    } catch (e: any) {
+      setErr(/seconds|rate/i.test(e?.message ?? '') ? 'Give it a minute before sending another code.' : e.message || 'Could not send a new code')
+    }
+  }
+
+  return (
+    <div className="auth">
+      <div className="auth-card">
+        <Link to="/" className="brand">
+          <Wordmark />
+        </Link>
+        <h1>Reset your password</h1>
+        <p className="muted">
+          If <b className="code-email">{email}</b> has an account, we just sent it a code. Type it here with your new password.
+        </p>
+        <form onSubmit={submit}>
+          <label>
+            Code
+            <input
+              className="code-input"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              placeholder="••••••"
+            />
+          </label>
+          <label>
+            <span className="pw-label">
+              New password
+              <button type="button" className="btn link tiny" onClick={() => setShow(!show)}>
+                {show ? 'Hide' : 'Show'}
+              </button>
+            </span>
+            <input type={show ? 'text' : 'password'} required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+            <span className="muted tiny">At least 6 characters.</span>
+          </label>
+          <label>
+            Confirm new password
+            <input type={show ? 'text' : 'password'} required minLength={6} value={password2} onChange={(e) => setPassword2(e.target.value)} autoComplete="new-password" />
+          </label>
+          {err && <div className="error">{err}</div>}
+          {note && <div className="note">{note}</div>}
+          <button className="btn primary block lg" disabled={busy || code.length < 6}>
+            {busy ? 'One sec…' : 'Save and log in'}
+          </button>
+        </form>
+        <p className="muted small center code-help">
+          Not there? Check spam or promotions. From <b>no-reply@dailies.digital</b>.
+        </p>
+        <button className="btn link block" onClick={resend} disabled={wait > 0}>
+          {wait > 0 ? `Send a new code (${wait}s)` : 'Send a new code'}
+        </button>
+        <button className="btn link block" onClick={onBack}>
+          Back to log in
         </button>
         {backend.mode === 'preview' && <p className="muted tiny center">Preview: no email is sent, so any 6 digits work.</p>}
       </div>
