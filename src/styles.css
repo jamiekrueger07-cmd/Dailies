@@ -980,7 +980,7 @@ button.vid-label:hover { color: var(--ink); }
 /* v24: posting days */
 .vno .vday { display: block; font-size: 10px; font-weight: 600; line-height: 1.1; color: var(--muted); white-space: nowrap; }
 .vid-plan { display: flex; align-items: baseline; gap: 6px; padding: 2px 2px 8px; min-width: 0; }
-.vid-plan-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.vid-plan-t { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
 .draft-week { padding: 0 0 6px 30px; }
 .missed-fresh { display: block; margin: 8px auto 0; }
 .code-help b { white-space: nowrap; }
@@ -1021,14 +1021,17 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .app-bar-link { padding: 7px 11px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); }
   /* Film: the hook gets the whole line, buttons sit underneath */
   .vline { flex-wrap: wrap; row-gap: 2px; }
-  .vhook { flex: 1 1 calc(100% - 44px); }
+  .vhook { flex: 1 1 calc(100% - 60px); }
   .vline .vscript { margin-left: auto; }
   .vline > .vstatus:nth-child(3) { margin-left: auto; }
   .nav-dates .btn { min-height: 40px; padding: 8px 12px; }
   .nav-dates .btn.icon { width: 40px; padding: 0; }
 }
-textarea.vhook { display: block; resize: none; overflow: hidden; white-space: nowrap; line-height: 1.35; font-weight: 500; height: 38px; }
-@media (max-width: 559px) { textarea.vhook { white-space: normal; height: auto; } }
+textarea.vhook { display: block; resize: none; overflow: hidden; line-height: 1.35; font-weight: 500; }
+/* Film: one brand per row on computers too, so hooks and scripts have room */
+/* Brands are always stacked one per row, never side by side */
+.page > .deal-card, .report-body > .deal-card, .page .deal-card { grid-column: 1 / -1 !important; }
+.vno { min-width: 44px; }
 .progress-top { flex-wrap: wrap; row-gap: 8px; }
 .progress-top .big { white-space: nowrap; }
 @media (max-width: 400px) { .progress-top .streak { margin-left: 0; order: 3; flex-basis: auto; } }
