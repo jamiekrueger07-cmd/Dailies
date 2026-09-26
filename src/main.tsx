@@ -1,4 +1,4 @@
-import { lazy, StrictMode, Suspense, type ReactNode } from 'react'
+import { lazy, StrictMode, Suspense, useEffect, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Analytics, type BeforeSendEvent } from '@vercel/analytics/react'
 import { BrowserRouter, HashRouter, Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
@@ -21,6 +21,7 @@ import { AccountPage, CheckoutWatcher } from './pages/Account'
 import { LegalPage } from './pages/Legal'
 import { useTitle } from './lib/title'
 import { skipKey } from './lib/skip'
+import { isInstalled } from './lib/install'
 const SharedReportPage = lazy(() => import('./pages/SharedReport').then((m) => ({ default: m.SharedReportPage })))
 
 function ToastView() {
@@ -47,13 +48,24 @@ const NAV = [
 ]
 
 function Shell({ children }: { children: ReactNode }) {
-  const { isPro, isPlus, email } = useApp()
+  const { isPro, isPlus, email, refreshProfile } = useApp()
+  // Coming back to the app (e.g. after Stripe checkout from the home-screen app): pick up plan changes.
+  useEffect(() => {
+    let last = Date.now()
+    const onShow = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - last < 30_000) return
+      last = Date.now()
+      refreshProfile().catch(() => {})
+    }
+    document.addEventListener('visibilitychange', onShow)
+    return () => document.removeEventListener('visibilitychange', onShow)
+  }, [refreshProfile])
   const planLabel = isPlus ? 'Pro Plus' : isPro ? 'Pro' : 'Free plan'
   return (
     <div className="shell">
       {/* computer: menu down the left side */}
       <aside className="side" aria-label="Main menu">
-        <Link to="/" className="brand side-brand" aria-label="Dailies homepage">
+        <Link to={isInstalled() ? '/app' : '/'} className="brand side-brand" aria-label="Dailies homepage">
           <Wordmark />
         </Link>
         <nav className="side-nav">
@@ -74,7 +86,7 @@ function Shell({ children }: { children: ReactNode }) {
 
       {/* phone: top bar + tabs along the bottom */}
       <header className="app-bar">
-        <Link to="/" className="brand" aria-label="Dailies homepage">
+        <Link to={isInstalled() ? '/app' : '/'} className="brand" aria-label="Dailies homepage">
           <Wordmark />
         </Link>
         <Link className="app-bar-link" to="/app/account">
@@ -157,6 +169,13 @@ const privateUrls = (e: BeforeSendEvent): BeforeSendEvent => {
 
 // The live site uses clean URLs; the single-file preview uses #/ URLs so it works anywhere.
 const Router = backend.mode === 'preview' ? HashRouter : BrowserRouter
+
+// Lets people add Dailies to their home screen / dock (live site only).
+if (backend.mode === 'cloud' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
+  })
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -984,3 +984,14 @@ button.vid-label:hover { color: var(--ink); }
 .draft-week { padding: 0 0 6px 30px; }
 .missed-fresh { display: block; margin: 8px auto 0; }
 .code-help b { white-space: nowrap; }
+
+/* v25: install Dailies (home screen / dock) */
+.install-banner { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; }
+.install-icon { flex: none; display: flex; }
+.install-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.install-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.install-actions .btn.link { padding: 4px 2px; font-size: 12px; color: var(--muted); }
+.install-steps { margin: 10px 0 4px; padding-left: 20px; font-size: 14px; line-height: 1.5; }
+.install-steps li { margin: 4px 0; }
+.share-glyph { width: 16px; height: 16px; vertical-align: -3px; color: #0a84ff; }
+.install-card .btn { margin-top: 6px; }
