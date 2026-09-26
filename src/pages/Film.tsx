@@ -52,12 +52,18 @@ function VideoLine({
           {String(video.no).padStart(2, '0')}
           {video.postDate && <small className="vday">{new Date(video.postDate + 'T12:00').toLocaleDateString('en-US', { weekday: 'short' })} {Number(video.postDate.slice(8))}</small>}
         </button>
-        <input
+        <textarea
           className="vhook"
+          rows={1}
+          ref={fitHook}
           aria-label={`Video ${video.no} hook or concept`}
           value={draft.hook}
           placeholder="Hook / concept…"
-          onChange={(e) => setDraft({ ...draft, hook: e.target.value })}
+          onChange={(e) => {
+            setDraft({ ...draft, hook: e.target.value.replace(/\n/g, ' ') })
+            fitHook(e.target)
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), e.currentTarget.blur())}
           onBlur={() => draft.hook !== video.hook && commit({ hook: draft.hook })}
         />
         {onScript && (
@@ -114,6 +120,18 @@ function VideoLine({
       )}
     </div>
   )
+}
+
+/** Grows the one-line hook box so long hooks wrap instead of getting cut off. */
+function fitHook(el: HTMLTextAreaElement | null) {
+  if (!el) return
+  // Phones only; on a computer the hook stays one line like before.
+  if (!window.matchMedia('(max-width: 559px)').matches) {
+    el.style.height = ''
+    return
+  }
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 2 + 'px'
 }
 
 export function FilmPage() {
