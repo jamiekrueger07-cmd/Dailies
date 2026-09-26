@@ -995,3 +995,40 @@ button.vid-label:hover { color: var(--ink); }
 .install-steps li { margin: 4px 0; }
 .share-glyph { width: 16px; height: 16px; vertical-align: -3px; color: #0a84ff; }
 .install-card .btn { margin-top: 6px; }
+
+/* v26: phone polish (below the desktop sidebar breakpoint) */
+html { -webkit-text-size-adjust: 100%; }
+button, a { -webkit-tap-highlight-color: transparent; }
+@media (max-width: 959px) {
+  /* iPhone zooms in on any field under 16px; keep them at 16 */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']), select, textarea { font-size: 16px !important; }
+  .page { padding: 18px 16px 12px; gap: 12px; }
+  .page-head { margin-bottom: 2px; }
+  .page-head h1 { font-size: 30px; }
+  main { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .app-bar { padding: 10px 16px; }
+  .tabs a { padding: 9px 0 8px; }
+  .toast { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  /* Report: 4 numbers as a 2x2 grid instead of 3 + 1 */
+  .summary:has(> .stat:nth-child(4)) { grid-template-columns: 1fr 1fr; }
+  .summary:has(> .stat:nth-child(4)) > .stat:nth-child(odd) { border-left: 0; }
+  .summary:has(> .stat:nth-child(4)) > .stat:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  .report-body { display: grid; gap: 12px; }
+  .report-body > .summary { margin: 0; }
+}
+@media (max-width: 560px) {
+  .app-bar-email { display: none; }
+  .app-bar-link { padding: 7px 11px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); }
+  /* Film: the hook gets the whole line, buttons sit underneath */
+  .vline { flex-wrap: wrap; row-gap: 2px; }
+  .vhook { flex: 1 1 calc(100% - 44px); }
+  .vline .vscript { margin-left: auto; }
+  .vline > .vstatus:nth-child(3) { margin-left: auto; }
+  .nav-dates .btn { min-height: 40px; padding: 8px 12px; }
+  .nav-dates .btn.icon { width: 40px; padding: 0; }
+}
+textarea.vhook { display: block; resize: none; overflow: hidden; white-space: nowrap; line-height: 1.35; font-weight: 500; height: 38px; }
+@media (max-width: 559px) { textarea.vhook { white-space: normal; height: auto; } }
+.progress-top { flex-wrap: wrap; row-gap: 8px; }
+.progress-top .big { white-space: nowrap; }
+@media (max-width: 400px) { .progress-top .streak { margin-left: 0; order: 3; flex-basis: auto; } }
