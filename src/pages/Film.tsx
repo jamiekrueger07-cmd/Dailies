@@ -125,11 +125,6 @@ function VideoLine({
 /** Grows the one-line hook box so long hooks wrap instead of getting cut off. */
 function fitHook(el: HTMLTextAreaElement | null) {
   if (!el) return
-  // Phones only; on a computer the hook stays one line like before.
-  if (!window.matchMedia('(max-width: 559px)').matches) {
-    el.style.height = ''
-    return
-  }
   el.style.height = 'auto'
   el.style.height = el.scrollHeight + 2 + 'px'
 }
@@ -199,7 +194,7 @@ export function FilmPage() {
   const setAll = (d: Deal, s: VideoStatus) => putVideos(list.filter((v) => v.dealId === d.id && v.status !== s).map((v) => ({ ...v, status: s })))
 
   return (
-    <div className="page">
+    <div className="page film-page">
       <header className="page-head">
         <div>
           <h1>Film</h1>

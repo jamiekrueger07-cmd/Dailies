@@ -368,7 +368,7 @@ export function TodayPage() {
   }
 
   return (
-    <div className="page" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <div className="page today-page" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       <header className="page-head">
         <div>
           <h1>{isToday ? 'Today' : longDate(date)}</h1>
