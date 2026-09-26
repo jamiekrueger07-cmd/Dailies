@@ -1,3 +1,4 @@
+import { InstallCard } from '../components/InstallApp'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { backend } from '../lib/backend'
@@ -200,6 +201,8 @@ export function AccountPage() {
           </>
         )}
       </section>
+
+      <InstallCard />
 
       {isPro && (
         <section className="card edit-card">

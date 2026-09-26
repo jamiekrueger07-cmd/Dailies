@@ -1,3 +1,4 @@
+import { InstallBanner } from '../components/InstallApp'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type TouchEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -388,6 +389,7 @@ export function TodayPage() {
 
       <LockedNote />
       {deals.length > 0 && <FirstDayTips />}
+      {deals.length > 0 && isToday && <InstallBanner />}
       {isToday && <EndingAlerts deals={deals} />}
 
       {deals.length === 0 && (
