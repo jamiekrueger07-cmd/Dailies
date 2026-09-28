@@ -278,6 +278,37 @@ export function postingSlots(d: Deal, from: string, count: number, maxDays = 400
   return out
 }
 
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+/**
+ * The first posting date a brief names ("Sep 28th - Oct 4", "Week of Sept 28", "9/28-10/4"), or null.
+ * Only dates from two weeks ago to four months ahead count, so stray dates in a brief are ignored.
+ */
+export function briefStartDate(texts: (string | undefined | null)[], now = today()): string | null {
+  const found: string[] = []
+  const add = (m: number, d: number) => {
+    if (m < 0 || m > 11 || d < 1 || d > 31) return
+    const base = parse(now)
+    for (const y of [base.getFullYear(), base.getFullYear() + 1, base.getFullYear() - 1]) {
+      const dt = new Date(y, m, d)
+      if (dt.getMonth() !== m) continue
+      const s = fmt(dt)
+      if (s >= addDays(now, -14) && s <= addDays(now, 120)) return void found.push(s)
+    }
+  }
+  for (const raw of texts) {
+    if (!raw) continue
+    const t = raw.slice(0, 20000).toLowerCase()
+    // A date with its own year that isn't this year or next ("Jan 3 2020") is history, not a posting date.
+    const yr = parse(now).getFullYear()
+    for (const m of t.matchAll(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}))?/g))
+      if (!m[3] || Number(m[3]) === yr || Number(m[3]) === yr + 1) add(MONTHS.indexOf(m[1]), Number(m[2]))
+    for (const m of t.matchAll(/\b(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?\b/g)) add(Number(m[1]) - 1, Number(m[2]))
+    if (found.length) break // the first text that names a date wins (the pasted brief before the AI's copy of it)
+  }
+  return found.length ? found.sort()[0] : null
+}
+
 /** Film-list order: videos with no posting day first (by number), then by posting day. */
 export const byPostOrder = (a: Video, b: Video) => (a.postDate ?? '').localeCompare(b.postDate ?? '') || a.no - b.no
 
