@@ -1,3 +1,4 @@
+import { BulkBar, BulkCheck, useBulk } from '../components/Bulk'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { backend } from '../lib/backend'
 import {
@@ -366,7 +367,8 @@ export function AiWriter({
   const orderedPicked = drafts ? drafts.map((_, k) => k).filter((k) => picked.has(meta[k]?.i ?? k)).sort((a, b) => (meta[a]?.i ?? a) - (meta[b]?.i ?? b)) : []
   const slots = postingSlots(deal, /^\d{4}-\d{2}-\d{2}$/.test(firstDate) ? firstDate : today(), orderedPicked.length)
   const dateOf = (k: number): string | null => slots[orderedPicked.indexOf(k)] ?? null
-  const weekOf = (k: number) => weekStart(dateOf(k) ?? firstDate)
+  // Everything goes in the week the creator picked; posting days can run past it, but the scripts stay together.
+  const weekOf = (_k: number) => week
   const [saving, setSaving] = useState(false)
   // picked and preview hold each draft's original position in the brief, so cards arriving out of order don't shift them.
   const idOf = (k: number) => meta[k]?.i ?? k
@@ -809,6 +811,8 @@ export function AiWriter({
 // ---------- the Scripts view inside Film ----------
 export function ScriptsView({ week, deals, focus }: { week: string; deals: Deal[]; focus: string | null }) {
   const { scripts, videos, putScripts, addScripts, isPro } = useApp()
+  const bulk = useBulk()
+  useEffect(() => bulk.stop(), [week]) // eslint-disable-line react-hooks/exhaustive-deps
   const [adding, setAdding] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const weekScripts = scripts.filter((s) => s.weekStart === week)
@@ -850,11 +854,20 @@ export function ScriptsView({ week, deals, focus }: { week: string; deals: Deal[
                     if (await putScripts([{ ...sc, ...x }])) setEditing(null)
                   }}
                 />
+              ) : bulk.deal === d.id ? (
+                <label key={sc.id} className="bulk-row bulk-script">
+                  <BulkCheck bulk={bulk} id={sc.id} label={sc.title} />
+                  <span>
+                    <span className="muted small">{String(videos.find((v) => v.id === sc.videoId)?.no ?? '–').padStart(2, '0')}</span> <b>{sc.title}</b>
+                  </span>
+                </label>
               ) : (
                 <ScriptCard key={sc.id + (focus === sc.id ? '-f' : '')} defaultOpen={focus === sc.id} sc={sc} no={videos.find((v) => v.id === sc.videoId)?.no ?? null} onEdit={() => setEditing(sc.id)} />
               ),
             )}
-            {adding === d.id ? (
+            {bulk.deal === d.id ? (
+              <BulkBar bulk={bulk} all={list.map((x) => x.id)} noun="script" onDelete={() => bulk.remove('scripts', week)} />
+            ) : adding === d.id ? (
               <ScriptEditor
                 initial={BLANK}
                 onCancel={() => setAdding(null)}
@@ -870,6 +883,11 @@ export function ScriptsView({ week, deals, focus }: { week: string; deals: Deal[
                 <Link className="btn small ai-link" to={`/app/ai?deal=${d.id}&week=${week}`}>
                   <IconAi /> AI script writer {!isPro && <ProBadge />}
                 </Link>
+                {list.length > 0 && (
+                  <button className="btn small" onClick={() => bulk.start(d.id)}>
+                    Select
+                  </button>
+                )}
               </div>
             )}
           </section>

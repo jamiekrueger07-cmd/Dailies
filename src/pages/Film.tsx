@@ -1,3 +1,4 @@
+import { BulkBar, BulkCheck, useBulk } from '../components/Bulk'
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { addDays, byPostOrder, nextStatus, statusLabel, today, uid, videosInWeek, weekLabel, weekStart, type Deal, type Video, type VideoStatus } from '../lib/model'
@@ -137,6 +138,8 @@ export function FilmPage() {
   const linked = params.get('script')
   const [week, setWeek] = useState(() => (/^\d{4}-\d{2}-\d{2}$/.test(params.get('week') ?? '') ? weekStart(params.get('week')!) : weekStart(today())))
   const [open, setOpen] = useState<string | null>(null)
+  const bulk = useBulk()
+  useEffect(() => bulk.stop(), [week]) // eslint-disable-line react-hooks/exhaustive-deps
   const [view, setView] = useState<'shots' | 'scripts'>(() => {
     if (linked) return 'scripts'
     try {
@@ -296,6 +299,8 @@ export function FilmPage() {
               </span>
             </div>
             {vs.map((v) => (
+              <div key={v.id} className={bulk.deal === d.id ? 'bulk-row' : 'bulk-off'}>
+              {bulk.deal === d.id && <BulkCheck bulk={bulk} id={v.id} label={`video ${v.no}`} />}
               <VideoLine
                 key={v.id}
                 video={v}
@@ -314,10 +319,17 @@ export function FilmPage() {
                     : undefined
                 }
               />
+              </div>
             ))}
+            {bulk.deal === d.id ? (
+              <BulkBar bulk={bulk} all={vs.map((v) => v.id)} noun="video" onDelete={() => bulk.remove('videos', week)} />
+            ) : (
             <div className="deal-actions">
               <button className="btn small" onClick={() => addOne(d)}>
                 + Video
+              </button>
+              <button className="btn small" onClick={() => bulk.start(d.id)}>
+                Select
               </button>
               <div className="grow" />
               <button className="btn small" onClick={() => setAll(d, 'filmed')}>
@@ -332,6 +344,7 @@ export function FilmPage() {
                 {d.needsApproval ? 'All approved' : 'All ready'}
               </button>
             </div>
+            )}
           </section>
         )
       })}
