@@ -5,6 +5,7 @@ import {
   addDays,
   aiLeft,
   aiResetsOn,
+  briefStartDate,
   PDF_PAGE_LIMIT,
   pdfPageCount,
   TOPUP_PRICE,
@@ -31,6 +32,18 @@ import { Link } from 'react-router-dom'
 import { IconAi } from '../components/Brand'
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
+
+type Kept = { week: string; mode: 'paste' | 'upload' | 'ai'; drafts: ScriptDraft[]; meta: { i: number; w: number }[]; picked: number[]; firstDate: string; at: number }
+/** Unsaved AI drafts from last time (kept for 14 days). */
+function loadKept(key: string): Kept | null {
+  try {
+    const k = JSON.parse(localStorage.getItem(key) || 'null') as Kept | null
+    if (!k || !Array.isArray(k.drafts) || !k.drafts.length || Date.now() - k.at > 14 * 864e5) return null
+    return k
+  } catch {
+    return null
+  }
+}
 
 // ---------- weeks ----------
 /** "Mon, Sep 28" */
@@ -344,16 +357,19 @@ export function AiWriter({
   /** true while a brief is being read or drafts are waiting to be added, so the page can stop the brand/week from changing */
   onLockChange?: (locked: boolean) => void
 }) {
-  const { isPro, addScripts, openUpgrade, profile, refreshProfile, flash } = useApp()
+  const { isPro, addScripts, openUpgrade, profile, refreshProfile, flash, userId } = useApp()
   const left = aiLeft(profile)
-  const [note, setNote] = useState('')
-  const [mode, setMode] = useState<Mode>('ai')
+  // AI drafts cost AI scripts, so they're kept on this device until added or discarded.
+  const keepKey = `dailies:aiDrafts:${userId ?? 'anon'}:${deal.id}`
+  const [kept] = useState(() => loadKept(keepKey))
+  const [note, setNote] = useState(kept ? `These ${kept.drafts.length} scripts weren't added yet, so we kept them for you. Add them or discard them.` : '')
+  const [mode, setMode] = useState<Mode>(kept?.mode ?? 'ai')
   const [text, setText] = useState('')
   const [fileName, setFileName] = useState('')
   const [upload, setUpload] = useState<{ text?: string; file?: { name: string; type: string; data: string } } | null>(null)
   const [brief, setBrief] = useState<WriteBrief>({ brand: deal.name, product: '', mustSay: '', count: 3, formats: ['Talking head'], length: '30 sec', tone: 'Casual', avoid: '' })
-  const [drafts, setDrafts] = useState<ScriptDraft[] | null>(null)
-  const [picked, setPicked] = useState<Set<number>>(new Set())
+  const [drafts, setDrafts] = useState<ScriptDraft[] | null>(kept?.drafts ?? null)
+  const [picked, setPicked] = useState<Set<number>>(() => new Set(kept?.picked ?? []))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [progress, setProgress] = useState<{ done: number; total: number; waiting: boolean } | null>(null)
@@ -361,19 +377,44 @@ export function AiWriter({
   // The creator's own note about the brief: the AI follows it, and it's saved on each card.
   const [briefNotes, setBriefNotes] = useState('')
   // Scripts keep the brief's order and take the brand's posting days one after another, starting here.
-  const [firstDate, setFirstDate] = useState(() => (week === weekStart(today()) ? today() : week))
-  const [meta, setMeta] = useState<{ i: number; w: number }[]>([])
+  const [firstDate, setFirstDate] = useState(() => kept?.firstDate ?? (week === weekStart(today()) ? today() : week))
+  const [meta, setMeta] = useState<{ i: number; w: number }[]>(kept?.meta ?? [])
+  // Restored drafts go back into the week they were made for.
+  const [keptWeek, setKeptWeek] = useState<string | null>(kept?.week ?? null)
   // Picked drafts in the brief's own order, each matched to its posting day.
   const orderedPicked = drafts ? drafts.map((_, k) => k).filter((k) => picked.has(meta[k]?.i ?? k)).sort((a, b) => (meta[a]?.i ?? a) - (meta[b]?.i ?? b)) : []
   const slots = postingSlots(deal, /^\d{4}-\d{2}-\d{2}$/.test(firstDate) ? firstDate : today(), orderedPicked.length)
   const dateOf = (k: number): string | null => slots[orderedPicked.indexOf(k)] ?? null
   // Everything goes in the week the creator picked; posting days can run past it, but the scripts stay together.
-  const weekOf = (_k: number) => week
+  const weekOf = (_k: number) => keptWeek ?? week
   const [saving, setSaving] = useState(false)
   // picked and preview hold each draft's original position in the brief, so cards arriving out of order don't shift them.
   const idOf = (k: number) => meta[k]?.i ?? k
   const alive = useRef(true)
   useEffect(() => () => void (alive.current = false), [])
+  useEffect(() => {
+    try {
+      if (drafts && drafts.length) {
+        const k: Kept = { week: keptWeek ?? week, mode, drafts, meta, picked: [...picked], firstDate, at: Date.now() }
+        localStorage.setItem(keepKey, JSON.stringify(k))
+      } else if (!drafts) {
+        localStorage.removeItem(keepKey)
+        if (keptWeek) setKeptWeek(null)
+      }
+    } catch {
+      /* storage full or blocked: drafts just aren't kept */
+    }
+  }, [drafts, meta, picked, firstDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Warn before closing the tab with paid-for drafts that haven't been added.
+  useEffect(() => {
+    if (!drafts?.length) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [!!drafts?.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const locked = busy || saving || !!drafts
   useEffect(() => {
     onLockChange?.(locked)
@@ -395,6 +436,9 @@ export function AiWriter({
     const outline = await backend.briefOutline({ brand: deal.name, ...src, notes })
     if ('fallback' in outline) return oneShot({ mode: 'split', brand: deal.name, ...src, notes })
     let videos = outline.videos
+    // A brief that names its dates ("Sep 28 - Oct 4") starts on that date instead of today.
+    const named = briefStartDate([src.text, outline.brief])
+    if (named) setFirstDate(named)
     const room = aiLeft(profile)
     let msg = ''
     if (videos.length > room) {
@@ -568,7 +612,7 @@ export function AiWriter({
             role="tab"
             aria-selected={mode === t.id}
             className={mode === t.id ? 'on' : ''}
-            disabled={busy || saving}
+            disabled={busy || saving || !!drafts?.length}
             onClick={() => {
               setMode(t.id)
               setDrafts(null)

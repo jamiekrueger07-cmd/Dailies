@@ -29,10 +29,18 @@ function showScriptsInFilm() {
 
 export function AiPage() {
   useTitle('AI scripts')
-  const { trackedDeals, isPro, profile, openUpgrade, refreshProfile, flash } = useApp()
+  const { trackedDeals, isPro, profile, openUpgrade, refreshProfile, flash, userId } = useApp()
   const [params, setParams] = useSearchParams()
   const active = useMemo(() => trackedDeals.filter((d) => d.status === 'active'), [trackedDeals])
-  const dealId = active.some((d) => d.id === params.get('deal')) ? params.get('deal')! : active[0]?.id
+  // With no brand in the link, open the brand that still has unsaved AI drafts waiting.
+  const waiting = active.find((d) => {
+    try {
+      return !!localStorage.getItem(`dailies:aiDrafts:${userId ?? 'anon'}:${d.id}`)
+    } catch {
+      return false
+    }
+  })?.id
+  const dealId = active.some((d) => d.id === params.get('deal')) ? params.get('deal')! : (waiting ?? active[0]?.id)
   const deal = active.find((d) => d.id === dealId)
   // Only a real date counts, and it's snapped to that week's Monday (Film lists scripts by Monday).
   const rawWeek = params.get('week') ?? ''

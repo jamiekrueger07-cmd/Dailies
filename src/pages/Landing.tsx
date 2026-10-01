@@ -374,6 +374,7 @@ export function LandingPage() {
       <footer className="l-foot">
         <span>© {new Date().getFullYear()} Dailies</span>
         <nav>
+          <Link to="/guides">Guides</Link>
           <Link to="/terms">Terms</Link>
           <Link to="/privacy">Privacy</Link>
         </nav>
