@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 const SITE = 'https://dailies.digital'
-const { render, routes, faq } = await import(pathToFileURL('dist-ssr/prerender.js').href)
+const { render, routes, faq, guides } = await import(pathToFileURL('dist-ssr/prerender.js').href)
 const shell = readFileSync('dist/index.html', 'utf8')
 
 const META = {
@@ -22,6 +22,9 @@ const META = {
   },
   '/login': { title: 'Log in · Dailies', description: 'Log in to Dailies.', noindex: true },
 }
+META['/guides'] = { title: 'Guides for UGC creators · Dailies', description: 'Practical how-tos for UGC creators juggling more than one brand deal: content calendars, posting trackers and proof of posting.' }
+for (const g of guides) META[g.path] = { title: `${g.title} · Dailies`, description: g.description, article: g }
+
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 const strip = (s) => s.replace(/<[^>]+>/g, '')
@@ -38,6 +41,10 @@ function page(path, body) {
     .replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${esc(m.title)}" />`)
     .replace('<div id="root"></div>', `<div id="root">${body}</div>`)
   if (m.noindex) html = html.replace('</head>', '    <meta name="robots" content="noindex" />\n  </head>')
+  if (m.article) {
+    const ld = { '@context': 'https://schema.org', '@type': 'Article', headline: m.article.title, description: m.article.description, mainEntityOfPage: url, publisher: { '@type': 'Organization', name: 'Dailies', logo: { '@type': 'ImageObject', url: SITE + '/icon-512.png' } } }
+    html = html.replace('</head>', `    <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>\n  </head>`)
+  }
   if (path === '/') {
     // FAQ rich results + who runs the site.
     const ld = [
