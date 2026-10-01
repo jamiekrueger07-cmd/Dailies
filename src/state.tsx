@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { backend } from './lib/backend'
-import { checkKey, parse, DEFAULT_SETTINGS, localTimezone, FREE_DEAL_LIMIT, PLATFORMS, type Check, type Deal, type Profile, type Script, type ScriptDraft, type Settings, type Tier, type Video, uid } from './lib/model'
+import { checkKey, parse, DEFAULT_SETTINGS, localTimezone, FREE_DEAL_LIMIT, PLATFORMS, type Check, type Deal, type Profile, type Script, type ScriptDraft, type Settings, type Tier, type Video, type CalEvent, uid, weekStart } from './lib/model'
 
 
 // On a failed save, undo only the items that save touched, so other taps that did save stay on screen.
@@ -21,6 +21,7 @@ function restoreKeys<V>(cur: Map<string, V>, before: Map<string, V>, keys: Itera
   return m
 }
 const bySort = (a: { sortOrder: number; id: string }, b: { sortOrder: number; id: string }) => a.sortOrder - b.sortOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+const byEvent = (a: CalEvent, b: CalEvent) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? '') || a.id.localeCompare(b.id)
 
 export interface Toast {
   msg: string
@@ -58,6 +59,11 @@ interface AppState {
   scripts: Script[]
   putScripts(s: Script[]): Promise<boolean>
   dropScripts(ids: string[]): Promise<void>
+  events: CalEvent[]
+  putEvents(e: CalEvent[]): Promise<boolean>
+  dropEvents(ids: string[]): Promise<void>
+  /** Move a planned video to another day (and that day's week, with its script). */
+  moveVideoTo(v: Video, date: string): Promise<boolean>
   addScripts(dealId: string, week: string, drafts: ScriptDraft[], source: Script['source'], opts?: { quiet?: boolean; postDates?: (string | null)[] }): Promise<boolean>
   toggleScriptDone(s: Script): Promise<void>
   /** Move a saved script to another week (a filmed video goes with it; an unfilmed slot stays with its week). */
@@ -76,7 +82,7 @@ const Ctx = createContext<AppState | null>(null)
  * Any action is a no-op; the real app replaces this page as soon as it loads in the browser.
  */
 const noop = () => undefined
-const STATIC_STATE = new Proxy({ userId: null, email: null, loading: false, deals: [], trackedDeals: [], videos: [], scripts: [], checks: new Map() } as Record<string, unknown>, {
+const STATIC_STATE = new Proxy({ userId: null, email: null, loading: false, deals: [], trackedDeals: [], videos: [], scripts: [], events: [], checks: new Map() } as Record<string, unknown>, {
   get: (t, k: string) => (k in t ? t[k] : noop),
 }) as unknown as AppState
 export function StaticAppProvider({ children }: { children: ReactNode }) {
@@ -100,6 +106,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [checks, setChecks_] = useState<Map<string, Check>>(new Map())
   const [videos, setVideos] = useState<Video[]>([])
   const [scripts, setScripts] = useState<Script[]>([])
+  const [events, setEvents] = useState<CalEvent[]>([])
+  const eventsRef = useRef<CalEvent[]>([])
+  const commitEvents = (next: CalEvent[]) => {
+    eventsRef.current = next
+    setEvents(next)
+  }
   // Always-fresh copies, so saves that run one after another (e.g. adding scripts to three weeks) build on each other
   // instead of each starting from the list as it was when the button was pressed.
   const videosRef = useRef<Video[]>([])
@@ -139,6 +151,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setChecks_(new Map())
         commitVideos([])
         commitScripts([])
+        commitEvents([])
         return
       }
       setUserId(u.id)
@@ -149,6 +162,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setChecks_(new Map(d.checks.map((c) => [checkKey(c), c])))
       commitVideos([...d.videos].sort(bySort))
       commitScripts([...(d.scripts ?? [])].sort(bySort))
+      commitEvents([...(d.events ?? [])].sort(byEvent))
     } catch (e) {
       console.error(e)
       flash('Could not load your data')
@@ -344,6 +358,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const putEvents = async (list: CalEvent[]): Promise<boolean> => {
+    if (!userId || !list.length) return true
+    const prev = eventsRef.current
+    const m = new Map(prev.map((x) => [x.id, x]))
+    for (const x of list) m.set(x.id, x)
+    commitEvents([...m.values()].sort(byEvent))
+    try {
+      await backend.putEvents(userId, list)
+      return true
+    } catch (e: any) {
+      console.error(e)
+      commitEvents(prev)
+      flash(e?.message?.includes('database update') ? e.message : 'Could not save')
+      return false
+    }
+  }
+  const dropEvents = async (ids: string[]) => {
+    if (!userId || !ids.length) return
+    const prev = eventsRef.current
+    const s = new Set(ids)
+    commitEvents(prev.filter((x) => !s.has(x.id)))
+    try {
+      await backend.dropEvents(userId, ids)
+    } catch (e) {
+      console.error(e)
+      commitEvents(prev)
+      flash('Could not delete')
+    }
+  }
+
+  // Calendar drag & drop: same week only changes the day; another week moves the video (and its script) there,
+  // numbered after that week's videos, and closes the gap it left behind.
+  const moveVideoTo = async (v: Video, date: string): Promise<boolean> => {
+    if (v.postDate === date) return true
+    const w = weekStart(date)
+    if (w === v.weekStart) return putVideos([{ ...v, postDate: date }])
+    const all = videosRef.current
+    const no = all.filter((x) => x.dealId === v.dealId && x.weekStart === w).reduce((m, x) => Math.max(m, x.no), 0) + 1
+    const left = all.filter((x) => x.dealId === v.dealId && x.weekStart === v.weekStart && x.id !== v.id).sort((a, b) => a.no - b.no)
+    const renum = left.map((x, i) => (x.no === i + 1 ? null : { ...x, no: i + 1 })).filter(Boolean) as Video[]
+    const ok = await putVideos([{ ...v, weekStart: w, no, postDate: date }, ...renum])
+    if (!ok) return false
+    const sc = scriptsRef.current.filter((x) => x.videoId === v.id)
+    if (sc.length) await putScripts(sc.map((x) => ({ ...x, weekStart: w })))
+    return true
+  }
+
   const putScripts = async (list: Script[]): Promise<boolean> => {
     if (!userId || !list.length) return true
     const prev = scriptsRef.current
@@ -498,6 +559,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     scripts,
     putScripts,
     dropScripts,
+    events,
+    putEvents,
+    dropEvents,
+    moveVideoTo,
     addScripts,
     toggleScriptDone,
     moveScript,

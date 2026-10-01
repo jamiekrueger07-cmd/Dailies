@@ -7,10 +7,11 @@ import { backend } from './lib/backend'
 import { AppProvider, useApp } from './state'
 import { UpgradeSheet } from './components/Upgrade'
 import { FeedbackButton } from './components/Feedback'
-import { IconAi, IconDeals, IconFilm, IconReport, IconToday, Wordmark } from './components/Brand'
+import { IconAi, IconCalendar, IconDeals, IconFilm, IconReport, IconToday, Wordmark } from './components/Brand'
 import { LandingPage } from './pages/Landing'
 import { AuthPage, ResetPasswordPage } from './pages/Auth'
 const TodayPage = lazy(() => import('./pages/Today').then((m) => ({ default: m.TodayPage })))
+const CalendarPage = lazy(() => import('./pages/Calendar').then((m) => ({ default: m.CalendarPage })))
 const FilmPage = lazy(() => import('./pages/Film').then((m) => ({ default: m.FilmPage })))
 const ShootPage = lazy(() => import('./pages/Shoot').then((m) => ({ default: m.ShootPage })))
 const ReportPage = lazy(() => import('./pages/Report').then((m) => ({ default: m.ReportPage })))
@@ -42,6 +43,7 @@ function ToastView() {
 
 const NAV = [
   { to: '/app', end: true, label: 'Today', Icon: IconToday },
+  { to: '/app/calendar', end: false, label: 'Calendar', Icon: IconCalendar },
   { to: '/app/film', end: false, label: 'Film', Icon: IconFilm },
   { to: '/app/ai', end: false, label: 'AI', Icon: IconAi },
   { to: '/app/report', end: false, label: 'Report', Icon: IconReport },
@@ -140,6 +142,7 @@ function AppRoutes() {
     <Shell>
       <Routes>
         <Route index element={<TodayPage />} />
+        <Route path="calendar" element={<CalendarPage />} />
         <Route path="film" element={<FilmPage />} />
         <Route path="film/shoot" element={<ShootPage />} />
         <Route path="ai" element={<AiPage />} />
