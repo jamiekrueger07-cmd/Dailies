@@ -2,7 +2,7 @@
 //  - cloud:   real accounts, data and billing (Supabase + Stripe). Used when VITE_SUPABASE_URL is set.
 //  - preview: everything in this browser, "Upgrade" just flips the plan. Used for the clickable preview.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { aiAllowance, aiLeft, DEFAULT_SETTINGS, today, FREE_DEAL_LIMIT, TOPUP_SCRIPTS, type Check, type Plan, type Tier, type Deal, type Interval, type Profile, type Script, type ScriptDraft, type Settings, type SharedReport, type Video, type WriteBrief } from './model'
+import { aiAllowance, aiLeft, DEFAULT_SETTINGS, today, FREE_DEAL_LIMIT, TOPUP_SCRIPTS, type Check, type Plan, type Tier, type Deal, type Interval, type Profile, type Script, type ScriptDraft, type Settings, type SharedReport, type Video, type WriteBrief, type CalEvent } from './model'
 import { sampleScripts, splitBrief } from './localScripts'
 
 export interface User {
@@ -14,6 +14,7 @@ export interface Data {
   checks: Check[]
   videos: Video[]
   scripts: Script[]
+  events: CalEvent[]
 }
 
 /** What the script helper is asked to do: split a brand's brief (pasted or uploaded), or write new scripts. */
@@ -74,6 +75,8 @@ export interface Backend {
   dropVideos(userId: string, ids: string[]): Promise<void>
   putScripts(userId: string, s: Script[]): Promise<void>
   dropScripts(userId: string, ids: string[]): Promise<void>
+  putEvents(userId: string, e: CalEvent[]): Promise<void>
+  dropEvents(userId: string, ids: string[]): Promise<void>
   aiScripts(req: AiRequest): Promise<AiResult>
   /** Three fresh hooks for a script. Free (doesn't use AI scripts), capped per hour. */
   altHooks(req: HookRequest): Promise<string[]>
@@ -176,6 +179,28 @@ const videoToRow = (v: Video, user_id: string) => ({
   sort_order: v.sortOrder,
   // Only sent when set, so saving still works on a database without the post_date column yet.
   ...(v.postDate ? { post_date: v.postDate } : {}),
+})
+
+const eventFromRow = (r: any): CalEvent => ({
+  id: r.id,
+  date: r.date,
+  title: r.title ?? '',
+  kind: (['film', 'invoice', 'deadline', 'other'].includes(r.kind) ? r.kind : 'other') as CalEvent['kind'],
+  dealId: r.deal_id ?? null,
+  time: r.time ? String(r.time).slice(0, 5) : null,
+  notes: r.notes ?? '',
+  done: !!r.done,
+})
+const eventToRow = (e: CalEvent, user_id: string) => ({
+  id: e.id,
+  user_id,
+  date: e.date,
+  title: e.title.slice(0, 200),
+  kind: e.kind,
+  deal_id: e.dealId,
+  time: e.time,
+  notes: e.notes.slice(0, 2000),
+  done: e.done,
 })
 
 const scriptFromRow = (r: any): Script => ({
@@ -426,11 +451,12 @@ function cloud(sb: SupabaseClient): Backend {
           if (!r.data || r.data.length < 1000) return { data: rows, error: null }
         }
       }
-      const [d, c, v, sc] = await Promise.all([
+      const [d, c, v, sc, ev] = await Promise.all([
         sb.from('deals').select('*').eq('user_id', userId).order('sort_order').order('id'),
         all((a, b) => sb.from('post_checks').select('deal_id,date,video_no,platform,link,views').eq('user_id', userId).order('date').order('deal_id').order('video_no').order('platform').range(a, b)),
         all((a, b) => sb.from('videos').select('*').eq('user_id', userId).order('sort_order').order('id').range(a, b)),
         all((a, b) => sb.from('scripts').select('*').eq('user_id', userId).order('sort_order').order('id').range(a, b)),
+        all((a, b) => sb.from('events').select('*').eq('user_id', userId).order('date').order('id').range(a, b)),
       ])
       if (d.error) throw d.error
       if (c.error) throw c.error
@@ -441,6 +467,8 @@ function cloud(sb: SupabaseClient): Backend {
         videos: v.data!.map(videoFromRow),
         // scripts arrived after launch; an older database without the table still loads
         scripts: sc.error ? [] : sc.data!.map(scriptFromRow),
+        // calendar events need the v15 table; without it the app still loads
+        events: ev.error ? [] : ev.data!.map(eventFromRow),
       }
     },
     async saveDeals(userId, deals) {
@@ -475,6 +503,16 @@ function cloud(sb: SupabaseClient): Backend {
     async dropVideos(userId, ids) {
       if (!ids.length) return
       const { error } = await sb.from('videos').delete().eq('user_id', userId).in('id', ids)
+      if (error) throw friendly(error)
+    },
+    async putEvents(userId, list) {
+      if (!list.length) return
+      const { error } = await sb.from('events').upsert(list.map((x) => eventToRow(x, userId)))
+      if (error) throw /relation .*events.* does not exist|Could not find the table/i.test(error.message ?? '') ? new Error('Calendar events need a quick database update first.') : friendly(error)
+    },
+    async dropEvents(userId, ids) {
+      if (!ids.length) return
+      const { error } = await sb.from('events').delete().eq('user_id', userId).in('id', ids)
       if (error) throw friendly(error)
     },
     async putScripts(userId, list) {
@@ -763,7 +801,7 @@ function preview(): Backend {
     },
     shareUrl: (token) => `${window.location.href.split('#')[0]}#/r/${token}`,
     async load() {
-      return { deals: get('deals', []), checks: get('checks', []), videos: get('videos', []), scripts: get('scripts', []) }
+      return { deals: get('deals', []), checks: get('checks', []), videos: get('videos', []), scripts: get('scripts', []), events: get('events', []) }
     },
     async saveDeals(_u, deals) {
       const all = new Map(get<Deal[]>('deals', []).map((d) => [d.id, d]))
@@ -792,6 +830,15 @@ function preview(): Backend {
     async dropVideos(_u, ids) {
       const s = new Set(ids)
       set('videos', get<Video[]>('videos', []).filter((x) => !s.has(x.id)))
+    },
+    async putEvents(_u, list) {
+      const m = new Map(get<CalEvent[]>('events', []).map((x) => [x.id, x]))
+      for (const x of list) m.set(x.id, x)
+      set('events', [...m.values()])
+    },
+    async dropEvents(_u, ids) {
+      const s = new Set(ids)
+      set('events', get<CalEvent[]>('events', []).filter((x) => !s.has(x.id)))
     },
     async putScripts(_u, list) {
       const m = new Map(get<Script[]>('scripts', []).map((x) => [x.id, x]))

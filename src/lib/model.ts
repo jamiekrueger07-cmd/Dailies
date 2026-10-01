@@ -69,6 +69,31 @@ export interface Video {
   postDate?: string | null
 }
 
+export type EventKind = 'film' | 'invoice' | 'deadline' | 'other'
+/** Something on the calendar that isn't a post: a filming session, invoice day, deadline, call… */
+export interface CalEvent {
+  id: string
+  date: string
+  title: string
+  kind: EventKind
+  dealId: string | null
+  /** "HH:MM" (24h, shown as 12-hour) or null for all day */
+  time: string | null
+  notes: string
+  done: boolean
+}
+export const EVENT_KINDS: { id: EventKind; label: string }[] = [
+  { id: 'film', label: 'Filming' },
+  { id: 'invoice', label: 'Invoice / payment' },
+  { id: 'deadline', label: 'Deadline' },
+  { id: 'other', label: 'Other' },
+]
+export const timeLabel = (t: string | null) => {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+}
+
 export type Interval = 'month' | 'year'
 
 export interface Settings {
