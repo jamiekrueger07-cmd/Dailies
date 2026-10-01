@@ -1,6 +1,6 @@
 import { InstallBanner } from '../components/InstallApp'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type TouchEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   addDays,
   longDate,
@@ -301,7 +301,9 @@ function CatchUp({ missed }: { missed: Row[] }) {
 export function TodayPage() {
   useTitle('Today')
   const { trackedDeals: deals, checks, videos, flash, userId } = useApp()
-  const [date, setDate] = useState(today())
+  // /app?date=2026-10-05 (from the Calendar) opens that day.
+  const [params] = useSearchParams()
+  const [date, setDate] = useState(() => (/^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date')! : today()))
   // If the app stays open past midnight, roll over to the new day (and refresh missed posts and the streak).
   const [day, setDay] = useState(today())
   useEffect(() => {
