@@ -27,6 +27,7 @@ const I = (d: string) =>
   }
 
 export const IconToday = I('M4 5h16v15H4zM4 9h16M8 3v4M16 3v4M9 14.5l2 2 4-4')
+export const IconCalendar = I('M4 5h16v15H4zM4 9h16M8 3v4M16 3v4M8 13h.01M12 13h.01M16 13h.01M8 16.5h.01M12 16.5h.01')
 export const IconFilm = I('M4 10h16v10H4zM4 10l1.5-5.5 15 3.5-.5 2M9 5.5l-1 4.5M14 6.7l-1 3.3')
 export const IconReport = I('M5 20V10M12 20V4M19 20v-7M3 20h18')
 export const IconDeals = I('M12 3v18M16.5 7.5C16 6 14.3 5 12 5c-2.8 0-4.5 1.4-4.5 3.2 0 4.3 9 2.3 9 7 0 1.9-1.9 3.3-4.5 3.3-2.5 0-4.3-1.1-4.8-2.8')
