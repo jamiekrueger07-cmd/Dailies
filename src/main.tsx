@@ -19,6 +19,7 @@ const DealsPage = lazy(() => import('./pages/Deals').then((m) => ({ default: m.D
 const OnboardingPage = lazy(() => import('./pages/Onboarding').then((m) => ({ default: m.OnboardingPage })))
 import { AccountPage, CheckoutWatcher } from './pages/Account'
 import { LegalPage } from './pages/Legal'
+import { GUIDES, GuidePage, GuidesIndex } from './pages/Guides'
 import { useTitle } from './lib/title'
 import { skipKey } from './lib/skip'
 import { isInstalled } from './lib/install'
@@ -190,6 +191,10 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/r/:token" element={<SharedReportPage />} />
           <Route path="/terms" element={<LegalPage kind="terms" />} />
           <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+          <Route path="/guides" element={<GuidesIndex />} />
+          {GUIDES.map((g) => (
+            <Route key={g.slug} path={`/${g.slug}`} element={<GuidePage slug={g.slug} />} />
+          ))}
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/app/*" element={<AppRoutes />} />
           <Route path="*" element={<NotFound />} />

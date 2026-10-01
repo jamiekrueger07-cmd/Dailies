@@ -6,6 +6,7 @@ import { StaticAppProvider } from './state'
 import { LandingPage, FAQ } from './pages/Landing'
 import { LegalPage } from './pages/Legal'
 import { AuthPage } from './pages/Auth'
+import { GUIDES, GuidePage, GuidesIndex } from './pages/Guides'
 
 const PAGES: Record<string, () => ReactElement> = {
   '/': () => <LandingPage />,
@@ -13,10 +14,13 @@ const PAGES: Record<string, () => ReactElement> = {
   '/privacy': () => <LegalPage kind="privacy" />,
   '/signup': () => <AuthPage mode="up" />,
   '/login': () => <AuthPage mode="in" />,
+  '/guides': () => <GuidesIndex />,
+  ...Object.fromEntries(GUIDES.map((g) => [`/${g.slug}`, () => <GuidePage slug={g.slug} />])),
 }
 
 export const routes = Object.keys(PAGES)
 export const faq = FAQ
+export const guides = GUIDES.map((g) => ({ path: `/${g.slug}`, title: g.title, description: g.lede }))
 
 export function render(path: string) {
   const Page = PAGES[path]

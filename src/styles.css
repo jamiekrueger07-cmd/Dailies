@@ -1048,3 +1048,27 @@ textarea.vhook { display: block; resize: none; overflow: hidden; line-height: 1.
 .bulk-bar .btn.danger { border-color: var(--danger); }
 .bulk-bar .btn.danger.confirm { background: var(--danger); color: #fff; }
 .bulk-warn { flex-basis: 100%; margin: 0; text-align: right; }
+
+/* v28: guides */
+.guide-wrap { min-height: 100%; display: flex; flex-direction: column; }
+.guide-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 760px; width: 100%; margin: 0 auto; padding: 18px 16px 0; }
+.guide-top .wordmark { font-size: 14px; }
+.guide { padding-top: 22px; }
+.guide h1 { font-size: 32px; line-height: 1.15; }
+.guide h2 { font-size: 19px; margin-top: 22px; }
+.guide p, .guide li { font-size: 16px; line-height: 1.6; }
+.guide-lede { font-size: 18px !important; color: var(--muted); margin-top: 8px; }
+.guide-crumb { text-decoration: none; }
+.guide-cta { margin-top: 26px; padding: 20px; display: grid; gap: 8px; justify-items: start; }
+.guide-cta h2 { margin: 0; }
+.guide-more { display: grid; gap: 8px; margin-top: 22px; }
+.guide-more a { color: var(--ink); }
+.guide-list { display: grid; gap: 12px; margin-top: 16px; }
+.guide-card { display: grid; gap: 6px; padding: 18px; text-decoration: none; color: var(--ink); }
+.guide-card:hover { border-color: var(--sage); }
+.guide-wrap .l-foot { margin-top: auto; max-width: 760px; width: 100%; margin-inline: auto; }
+@media (min-width: 960px) { .guide h1 { font-size: 40px; } }
+.guide-wrap .page.guide { display: block; max-width: 760px; width: 100%; margin: 0 auto !important; padding: 22px 16px 24px !important; }
+.guide-wrap .page.guide > * + * { margin-top: 12px; }
+.guide-wrap .guide-list { display: grid; }
+.guide-card b { color: var(--ink); }
