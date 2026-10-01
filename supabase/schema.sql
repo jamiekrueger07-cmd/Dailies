@@ -727,3 +727,23 @@ grant execute on function public.get_shared_report(text) to anon, authenticated;
 
 -- v14: posting day per film-list video (scripts imported in order get one day each)
 alter table public.videos add column if not exists post_date date;
+
+-- =====================================================================
+-- v15 (Oct 1): calendar events (filming sessions, invoice days, deadlines…)
+-- =====================================================================
+create table if not exists public.events (
+  id uuid primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null,
+  title text not null default '' check (char_length(title) <= 200),
+  kind text not null default 'other' check (kind in ('film','invoice','deadline','other')),
+  deal_id uuid references public.deals(id) on delete set null,
+  time time,
+  notes text not null default '' check (char_length(notes) <= 2000),
+  done boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists events_user_date on public.events (user_id, date);
+alter table public.events enable row level security;
+drop policy if exists "own events" on public.events;
+create policy "own events" on public.events for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
