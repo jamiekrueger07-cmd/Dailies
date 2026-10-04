@@ -400,6 +400,8 @@ export interface MonthLine {
   /** Pay expected for the whole month (base pay for the full month, per-video pay for every video owed,
    * plus view pay logged so far), or null when the deal has no pay set up. Dailies can't see what was actually paid. */
   earned: number | null
+  /** Pay earned so far: finished videos, view pay logged, and base pay for the part of the month that's gone by. */
+  soFar: number
   pay: Pay
   /** Views logged on this month's posts. */
   views: number
@@ -463,7 +465,7 @@ export function monthReport(deals: Deal[], checks: Map<string, Check>, month: st
   const t = today()
   const map = new Map<string, MonthLine>()
   for (const d of deals)
-    map.set(d.id, { deal: d, videosOwed: 0, videosDone: 0, postsOwed: 0, postsDone: 0, earned: null, pay: { base: 0, videos: 0, views: 0, bonus: 0 }, views: 0, posts: 0, postsWithViews: 0, viewsDue: 0 })
+    map.set(d.id, { deal: d, videosOwed: 0, videosDone: 0, postsOwed: 0, postsDone: 0, earned: null, soFar: 0, pay: { base: 0, videos: 0, views: 0, bonus: 0 }, views: 0, posts: 0, postsWithViews: 0, viewsDue: 0 })
   for (let day = 1; day <= last; day++) {
     const date = `${y}-${pad(m)}-${pad(day)}`
     if (date > t) break
@@ -502,6 +504,11 @@ export function monthReport(deals: Deal[], checks: Map<string, Check>, month: st
     l.pay.base = basePayFor(d, month, `${y}-${pad(m)}-${pad(last)}`)
     l.pay.views = money(l.pay.views)
     if (hasPay(d) || d.ratePerVideo != null) l.earned = money(l.pay.base + l.pay.videos + l.pay.views + l.pay.bonus)
+    const end = `${y}-${pad(m)}-${pad(last)}`
+    const upTo = t < end ? t : end
+    const gone = upTo < `${month}-01` ? 0 : Number(upTo.slice(-2)) / last
+    const base = d.basePer === 'week' ? basePayFor(d, month, upTo) : l.pay.base * gone
+    l.soFar = money(l.videosDone * (d.ratePerVideo ?? 0) + l.pay.views + l.pay.bonus + base)
   }
   return lines
 }
@@ -604,3 +611,180 @@ export interface WriteBrief {
 export const SCRIPT_FORMATS = ['Talking head', 'Voiceover', 'POV', 'Skit', 'Green screen', 'Tutorial', 'Unboxing', 'Day in my life']
 export const SCRIPT_TONES = ['Casual', 'Funny', 'Educational', 'Hype', 'Honest review']
 export const SCRIPT_LENGTHS = ['15 sec', '30 sec', '60 sec']
+
+// ---------------------------------------------------------------------------
+// Workday: clock in / out, the day's to-do list and how long it should take.
+// ---------------------------------------------------------------------------
+
+/** One stretch of work. A break ends a stretch with end_reason 'break'; clocking out ends it with 'out'. */
+export interface WorkSession {
+  id: string
+  date: string // the local day it started
+  startedAt: string // ISO time
+  endedAt: string | null
+  endReason: 'break' | 'out' | null
+}
+
+/** Minutes each kind of task takes. Creators can change these; the day's expected hours add them up. */
+export interface WorkMinutes {
+  script: number // write one script
+  film: number // film one video
+  edit: number // edit one video
+  post: number // post one video to one platform
+  task: number // one of your own to-dos
+}
+export const DEFAULT_WORK_MINUTES: WorkMinutes = { script: 20, film: 15, edit: 30, post: 5, task: 15 }
+export const WORK_MINUTE_LABELS: Record<keyof WorkMinutes, string> = {
+  script: 'Write a script',
+  film: 'Film a video',
+  edit: 'Edit a video',
+  post: 'Post to one platform',
+  task: 'Your own to-do',
+}
+
+export type WorkKind = 'post' | 'film' | 'edit' | 'script' | 'task'
+export interface WorkTask {
+  key: string
+  kind: WorkKind
+  title: string
+  detail: string
+  minutes: number
+  done: boolean
+  dealId: string | null
+  /** what to change when it's ticked off (videos for film/edit, an event for tasks) */
+  videoIds?: string[]
+  eventId?: string
+  link?: string
+}
+
+const FILM_DONE: VideoStatus[] = ['filmed', 'edited', 'submitted', 'ready']
+const EDIT_DONE: VideoStatus[] = ['edited', 'submitted', 'ready']
+
+/**
+ * Everything a creator should get done on `date`, in work order: scripts, filming, editing, posting, then their own to-dos.
+ * - Filming / editing: videos posting today or tomorrow that aren't filmed / edited yet, plus every unfilmed video
+ *   of the week on a brand's batch filming day.
+ * - Scripts: videos posting in the next 3 days with no script yet.
+ * - Posting: today's quota per brand (done once every platform is ticked).
+ */
+export function workdayTasks(
+  date: string,
+  deals: Deal[],
+  checks: Map<string, Check>,
+  videos: Video[],
+  scripts: Script[],
+  events: CalEvent[],
+  mins: WorkMinutes = DEFAULT_WORK_MINUTES,
+): WorkTask[] {
+  const out: WorkTask[] = []
+  const live = deals.filter((d) => d.status === 'active' && isLive(d, date))
+  const byDeal = new Map(live.map((d) => [d.id, d]))
+  const dow = parse(date).getDay()
+  const week = weekStart(date)
+  const soon = addDays(date, 1)
+  const hasScript = new Set(scripts.map((s) => s.videoId).filter(Boolean))
+
+  for (const d of live) {
+    const mine = videos.filter((v) => v.dealId === d.id)
+    const batch = d.filmDay === dow
+    const due = (v: Video) => (v.postDate ? v.postDate >= date && v.postDate <= soon : false) || (batch && v.weekStart === week)
+
+    const toScript = mine.filter((v) => v.postDate && v.postDate >= date && v.postDate <= addDays(date, 3) && !hasScript.has(v.id))
+    if (toScript.length)
+      out.push({
+        key: `script|${d.id}`,
+        kind: 'script',
+        title: `Write ${toScript.length} script${toScript.length === 1 ? '' : 's'} for ${d.name}`,
+        detail: 'Posting in the next few days',
+        minutes: toScript.length * mins.script,
+        done: false,
+        dealId: d.id,
+        link: `/app/ai?deal=${d.id}&week=${toScript[0].weekStart}`,
+      })
+
+    const film = mine.filter(due).filter((v) => !FILM_DONE.includes(v.status))
+    const filmedToday = mine.filter(due).filter((v) => FILM_DONE.includes(v.status))
+    if (film.length || (batch && filmedToday.length))
+      out.push({
+        key: `film|${d.id}`,
+        kind: 'film',
+        title: `Film ${film.length || filmedToday.length} video${(film.length || filmedToday.length) === 1 ? '' : 's'} for ${d.name}`,
+        detail: batch ? 'Batch filming day' : 'Posting today or tomorrow',
+        minutes: (film.length || filmedToday.length) * mins.film,
+        done: film.length === 0,
+        dealId: d.id,
+        videoIds: film.map((v) => v.id),
+        link: `/app/film/shoot?week=${week}`,
+      })
+
+    const edit = mine.filter(due).filter((v) => !EDIT_DONE.includes(v.status))
+    const editedToday = mine.filter(due).filter((v) => EDIT_DONE.includes(v.status))
+    if (edit.length || (batch && editedToday.length))
+      out.push({
+        key: `edit|${d.id}`,
+        kind: 'edit',
+        title: `Edit ${edit.length || editedToday.length} video${(edit.length || editedToday.length) === 1 ? '' : 's'} for ${d.name}`,
+        detail: batch ? 'Batch day' : 'Posting today or tomorrow',
+        minutes: (edit.length || editedToday.length) * mins.edit,
+        done: edit.length === 0,
+        dealId: d.id,
+        videoIds: edit.map((v) => v.id),
+        link: `/app/film?week=${week}`,
+      })
+  }
+
+  for (const d of live) {
+    const rows = rowsFor([d], checks, date)
+    if (!rows.length) continue
+    const n = rows.length
+    out.push({
+      key: `post|${d.id}`,
+      kind: 'post',
+      title: `Post ${n} video${n === 1 ? '' : 's'} for ${d.name}`,
+      detail: d.platforms.map((p) => PLATFORMS.find((x) => x.id === p)?.short ?? p).join(', '),
+      minutes: rows.reduce((m, r) => m + r.platforms.length, 0) * mins.post,
+      done: rows.every((r) => r.done),
+      dealId: d.id,
+      link: `/app?date=${date}`,
+    })
+  }
+
+  for (const e of events.filter((x) => x.date === date))
+    out.push({
+      key: `task|${e.id}`,
+      kind: 'task',
+      title: e.title,
+      detail: [e.time ? timeLabel(e.time) : '', e.dealId && byDeal.get(e.dealId) ? byDeal.get(e.dealId)!.name : ''].filter(Boolean).join(' · '),
+      minutes: mins.task,
+      done: e.done,
+      dealId: e.dealId,
+      eventId: e.id,
+    })
+  return out
+}
+
+/** Minutes worked in a list of sessions (open ones count up to `now`). */
+export function workedMinutes(sessions: WorkSession[], now = Date.now()) {
+  return Math.round(
+    sessions.reduce((ms, s) => ms + Math.max(0, (s.endedAt ? Date.parse(s.endedAt) : now) - Date.parse(s.startedAt)), 0) / 60000,
+  )
+}
+/** 95 -> "1 h 35 m", 40 -> "40 m" */
+export const hm = (min: number) => {
+  const m = Math.max(0, Math.round(min))
+  return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ''}` : `${m} m`
+}
+
+/** Rough pay earned in a week from what was posted: per-video rate for each finished video, plus base pay. Views pay isn't counted. */
+export function weekPayEstimate(deals: Deal[], checks: Map<string, Check>, start: string, now = today()) {
+  let total = 0
+  for (const d of deals) {
+    for (let i = 0; i < 7; i++) {
+      const date = addDays(start, i)
+      if (date > now) break
+      if (d.ratePerVideo) total += rowsFor([d], checks, date).filter((r) => r.done).length * d.ratePerVideo
+    }
+    if (d.basePay && d.basePay > 0 && liveDaysInWeek(d, start).length) total += d.basePer === 'week' ? d.basePay : (d.basePay * 7) / 30
+  }
+  return Math.round(total)
+}

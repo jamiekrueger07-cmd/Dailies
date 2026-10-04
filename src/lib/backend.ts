@@ -2,7 +2,7 @@
 //  - cloud:   real accounts, data and billing (Supabase + Stripe). Used when VITE_SUPABASE_URL is set.
 //  - preview: everything in this browser, "Upgrade" just flips the plan. Used for the clickable preview.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { aiAllowance, aiLeft, DEFAULT_SETTINGS, today, FREE_DEAL_LIMIT, TOPUP_SCRIPTS, type Check, type Plan, type Tier, type Deal, type Interval, type Profile, type Script, type ScriptDraft, type Settings, type SharedReport, type Video, type WriteBrief, type CalEvent } from './model'
+import { aiAllowance, aiLeft, DEFAULT_SETTINGS, today, FREE_DEAL_LIMIT, TOPUP_SCRIPTS, type Check, type Plan, type Tier, type Deal, type Interval, type Profile, type Script, type ScriptDraft, type Settings, type SharedReport, type Video, type WriteBrief, type CalEvent, type WorkSession, type WorkMinutes } from './model'
 import { sampleScripts, splitBrief } from './localScripts'
 
 export interface User {
@@ -76,6 +76,10 @@ export interface Backend {
   putScripts(userId: string, s: Script[]): Promise<void>
   dropScripts(userId: string, ids: string[]): Promise<void>
   putEvents(userId: string, e: CalEvent[]): Promise<void>
+  /** Workday: clock sessions (last 60 days) and the creator's minutes per task. Works (empty) before the v16 tables exist. */
+  loadWork(userId: string): Promise<{ sessions: WorkSession[]; minutes: WorkMinutes | null }>
+  putSessions(userId: string, s: WorkSession[]): Promise<void>
+  saveWorkMinutes(userId: string, m: WorkMinutes): Promise<void>
   dropEvents(userId: string, ids: string[]): Promise<void>
   aiScripts(req: AiRequest): Promise<AiResult>
   /** Three fresh hooks for a script. Free (doesn't use AI scripts), capped per hour. */
@@ -505,6 +509,28 @@ function cloud(sb: SupabaseClient): Backend {
       const { error } = await sb.from('videos').delete().eq('user_id', userId).in('id', ids)
       if (error) throw friendly(error)
     },
+    async loadWork(userId) {
+      const since = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10)
+      const [s, p] = await Promise.all([
+        sb.from('work_sessions').select('*').eq('user_id', userId).gte('date', since).order('started_at'),
+        sb.from('profiles').select('work_minutes').eq('id', userId).maybeSingle(),
+      ])
+      return {
+        sessions: s.error ? [] : (s.data ?? []).map((r: any) => ({ id: r.id, date: r.date, startedAt: r.started_at, endedAt: r.ended_at, endReason: r.end_reason ?? null })),
+        minutes: p.error || !p.data?.work_minutes ? null : (p.data.work_minutes as WorkMinutes),
+      }
+    },
+    async putSessions(userId, list) {
+      if (!list.length) return
+      const { error } = await sb
+        .from('work_sessions')
+        .upsert(list.map((x) => ({ id: x.id, user_id: userId, date: x.date, started_at: x.startedAt, ended_at: x.endedAt, end_reason: x.endReason })))
+      if (error) throw /work_sessions|does not exist|Could not find the table/i.test(error.message ?? '') ? new Error('The clock needs a quick database update first.') : friendly(error)
+    },
+    async saveWorkMinutes(userId, m) {
+      const { error } = await sb.from('profiles').update({ work_minutes: m }).eq('id', userId)
+      if (error) throw friendly(error)
+    },
     async putEvents(userId, list) {
       if (!list.length) return
       const { error } = await sb.from('events').upsert(list.map((x) => eventToRow(x, userId)))
@@ -830,6 +856,17 @@ function preview(): Backend {
     async dropVideos(_u, ids) {
       const s = new Set(ids)
       set('videos', get<Video[]>('videos', []).filter((x) => !s.has(x.id)))
+    },
+    async loadWork() {
+      return { sessions: get<WorkSession[]>('sessions', []), minutes: get<WorkMinutes | null>('workMinutes', null) }
+    },
+    async putSessions(_u, list) {
+      const m = new Map(get<WorkSession[]>('sessions', []).map((x) => [x.id, x]))
+      for (const x of list) m.set(x.id, x)
+      set('sessions', [...m.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt)))
+    },
+    async saveWorkMinutes(_u, m) {
+      set('workMinutes', m)
     },
     async putEvents(_u, list) {
       const m = new Map(get<CalEvent[]>('events', []).map((x) => [x.id, x]))
