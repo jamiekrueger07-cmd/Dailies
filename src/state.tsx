@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { backend } from './lib/backend'
-import { checkKey, parse, DEFAULT_SETTINGS, localTimezone, FREE_DEAL_LIMIT, PLATFORMS, type Check, type Deal, type Profile, type Script, type ScriptDraft, type Settings, type Tier, type Video, type CalEvent, uid, weekStart } from './lib/model'
+import { checkKey, parse, DEFAULT_SETTINGS, localTimezone, FREE_DEAL_LIMIT, PLATFORMS, type Check, type Deal, type Profile, type Script, type ScriptDraft, type Settings, type Tier, type Video, type CalEvent, type WorkSession, type WorkMinutes, DEFAULT_WORK_MINUTES, today, uid, weekStart } from './lib/model'
 
 
 // On a failed save, undo only the items that save touched, so other taps that did save stay on screen.
@@ -64,6 +64,15 @@ interface AppState {
   dropEvents(ids: string[]): Promise<void>
   /** Move a planned video to another day (and that day's week, with its script). */
   moveVideoTo(v: Video, date: string): Promise<boolean>
+  /** Workday clock */
+  sessions: WorkSession[]
+  workMinutes: WorkMinutes
+  clockIn(): Promise<void>
+  takeBreak(): Promise<void>
+  clockOut(): Promise<void>
+  /** End a session left running from an earlier day at the time they say they stopped. */
+  endForgotten(s: WorkSession, endedAt: string): Promise<void>
+  saveWorkMinutes(m: WorkMinutes): Promise<void>
   addScripts(dealId: string, week: string, drafts: ScriptDraft[], source: Script['source'], opts?: { quiet?: boolean; postDates?: (string | null)[] }): Promise<boolean>
   toggleScriptDone(s: Script): Promise<void>
   /** Move a saved script to another week (a filmed video goes with it; an unfilmed slot stays with its week). */
@@ -82,7 +91,7 @@ const Ctx = createContext<AppState | null>(null)
  * Any action is a no-op; the real app replaces this page as soon as it loads in the browser.
  */
 const noop = () => undefined
-const STATIC_STATE = new Proxy({ userId: null, email: null, loading: false, deals: [], trackedDeals: [], videos: [], scripts: [], events: [], checks: new Map() } as Record<string, unknown>, {
+const STATIC_STATE = new Proxy({ userId: null, email: null, loading: false, deals: [], trackedDeals: [], videos: [], scripts: [], events: [], sessions: [], checks: new Map() } as Record<string, unknown>, {
   get: (t, k: string) => (k in t ? t[k] : noop),
 }) as unknown as AppState
 export function StaticAppProvider({ children }: { children: ReactNode }) {
@@ -108,6 +117,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [scripts, setScripts] = useState<Script[]>([])
   const [events, setEvents] = useState<CalEvent[]>([])
   const eventsRef = useRef<CalEvent[]>([])
+  const [sessions, setSessions] = useState<WorkSession[]>([])
+  const sessionsRef = useRef<WorkSession[]>([])
+  const commitSessions = (next: WorkSession[]) => {
+    sessionsRef.current = next
+    setSessions(next)
+  }
+  const [workMinutes, setWorkMinutes] = useState<WorkMinutes>(DEFAULT_WORK_MINUTES)
   const commitEvents = (next: CalEvent[]) => {
     eventsRef.current = next
     setEvents(next)
@@ -152,6 +168,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         commitVideos([])
         commitScripts([])
         commitEvents([])
+        commitSessions([])
         return
       }
       setUserId(u.id)
@@ -163,6 +180,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       commitVideos([...d.videos].sort(bySort))
       commitScripts([...(d.scripts ?? [])].sort(bySort))
       commitEvents([...(d.events ?? [])].sort(byEvent))
+      // The workday clock loads on its own so an older database (no v16 tables yet) never blocks the app.
+      backend
+        .loadWork(u.id)
+        .then((w) => {
+          commitSessions(w.sessions)
+          setWorkMinutes({ ...DEFAULT_WORK_MINUTES, ...(w.minutes ?? {}) })
+        })
+        .catch(() => {})
     } catch (e) {
       console.error(e)
       flash('Could not load your data')
@@ -355,6 +380,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.error(e)
       commitVideos(restoreById(videosRef.current, prev, ids, bySort))
       flash('Could not delete')
+    }
+  }
+
+  const saveSessions = async (list: WorkSession[]) => {
+    if (!userId) return false
+    const prev = sessionsRef.current
+    const m = new Map(prev.map((x) => [x.id, x]))
+    for (const x of list) m.set(x.id, x)
+    commitSessions([...m.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt)))
+    try {
+      await backend.putSessions(userId, list)
+      return true
+    } catch (e: any) {
+      console.error(e)
+      commitSessions(prev)
+      flash(e?.message?.includes('database update') ? e.message : 'Could not save the clock')
+      return false
+    }
+  }
+  const openSession = () => sessionsRef.current.find((x) => !x.endedAt)
+  const clockIn = async () => {
+    if (openSession()) return
+    await saveSessions([{ id: uid(), date: today(), startedAt: new Date().toISOString(), endedAt: null, endReason: null }])
+  }
+  const takeBreak = async () => {
+    const o = openSession()
+    if (o) await saveSessions([{ ...o, endedAt: new Date().toISOString(), endReason: 'break' }])
+  }
+  const clockOut = async () => {
+    const o = openSession()
+    if (o) return void (await saveSessions([{ ...o, endedAt: new Date().toISOString(), endReason: 'out' }]))
+    // On a break: the break just becomes the end of the day.
+    const last = [...sessionsRef.current].reverse().find((x) => x.date === today())
+    if (last && last.endReason === 'break') await saveSessions([{ ...last, endReason: 'out' }])
+  }
+  const endForgotten = async (x: WorkSession, endedAt: string) => {
+    await saveSessions([{ ...x, endedAt, endReason: 'out' }])
+  }
+  const saveWorkMinutes = async (m: WorkMinutes) => {
+    if (!userId) return
+    const prev = workMinutes
+    setWorkMinutes(m)
+    try {
+      await backend.saveWorkMinutes(userId, m)
+      flash('Saved')
+    } catch (e) {
+      console.error(e)
+      setWorkMinutes(prev)
+      flash('Could not save. The workday settings may need a quick database update first.')
     }
   }
 
@@ -563,6 +637,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     putEvents,
     dropEvents,
     moveVideoTo,
+    sessions,
+    workMinutes,
+    clockIn,
+    takeBreak,
+    clockOut,
+    endForgotten,
+    saveWorkMinutes,
     addScripts,
     toggleScriptDone,
     moveScript,

@@ -1167,3 +1167,63 @@ textarea.vhook { display: block; resize: none; overflow: hidden; line-height: 1.
   .cal-form-row { grid-template-columns: 1fr; gap: 0; }
 }
 .cal-row .grow.inl { display: block; }
+
+/* v31: workday on Today, quick brand */
+.wd-forgot { padding: 14px; border: 1px solid var(--hi-edge); border-radius: 8px; background: color-mix(in srgb, var(--hi) 35%, var(--surface)); display: grid; gap: 10px; }
+.wd-forgot p { margin: 0; }
+.wd-forgot-row { display: flex; gap: 8px; }
+.wd-forgot-row input { width: auto; margin: 0; }
+.wd-clock { padding: 18px; display: grid; gap: 14px; }
+.wd-clock.s-working { border-color: var(--sage); }
+.wd-clock-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 14px; }
+.wd-state { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.s-working .wd-state { color: var(--soft-ink); }
+.wd-live { width: 8px; height: 8px; border-radius: 50%; background: #2e9e6b; box-shadow: 0 0 0 4px color-mix(in srgb, #2e9e6b 25%, transparent); animation: wdpulse 1.6s ease-in-out infinite; }
+@keyframes wdpulse { 50% { box-shadow: 0 0 0 7px transparent; } }
+@media (prefers-reduced-motion: reduce) { .wd-live { animation: none; } }
+.wd-big { margin: 2px 0 0; font-size: 34px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.wd-big .muted { font-size: 15px; font-weight: 500; letter-spacing: 0; }
+.wd-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.wd-plan { display: grid; gap: 6px; }
+.wd-plan p { margin: 0; }
+.wd-plan-row { display: flex; justify-content: space-between; gap: 10px; }
+.wd-list { padding: 16px; display: grid; }
+.wd-task { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.wd-task .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wd-title { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.wd-title .dot { margin: 0; flex: none; }
+.wd-task.done .wd-title { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.wd-check { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line-strong); background: var(--surface); display: grid; place-items: center; color: #fff; cursor: pointer; padding: 0; }
+.wd-check.on { background: var(--forest); border-color: var(--forest); }
+.wd-check.static { cursor: default; border-style: dashed; }
+.wd-check.static.on { border-style: solid; }
+.wd-check .tick { width: 13px; height: 13px; }
+.wd-add { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.wd-add input { margin: 0; flex: 1; min-width: 0; }
+.wd-mins { display: grid; gap: 10px; }
+.wd-mins p { margin: 0; }
+.wd-mins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 4px 14px; }
+.wd-mins-grid label { margin-top: 4px; font-size: 13px; }
+.wd-min-in { display: flex; align-items: center; gap: 6px; }
+.wd-min-in input { width: 80px; margin-top: 4px; }
+.wd-rate { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.wd-rate-n b { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.wd-rate-n .muted { margin-left: 3px; font-size: 13px; }
+.wd-rate-why { flex-basis: 100%; margin: 0; }
+.pay-card { padding: 16px; display: grid; gap: 12px; margin-bottom: 14px; }
+.pay-card .deal-head { margin: 0; }
+.pay-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 600px) { .pay-grid { grid-template-columns: 1fr 1fr; } }
+.pay-n { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.pay-note { margin: 0; }
+.wd-times { justify-self: start; padding: 0 !important; }
+.wd-empty { margin: 4px 0 10px; }
+.quick-brand { display: grid; gap: 8px; }
+.quick-brand h2, .quick-brand p { margin: 0; }
+.quick-brand label { margin-top: 4px; }
+.qb-label { margin-top: 6px; }
+.qb-presets, .qb-platforms { display: flex; flex-wrap: wrap; gap: 6px; }
+.qb-custom { display: flex; gap: 8px; }
+.qb-custom input { width: 90px; margin: 0; }
+.qb-custom select { width: auto; margin: 0; }
+.qb-edit { justify-self: start; padding: 0 !important; }
