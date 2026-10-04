@@ -159,5 +159,69 @@ Deno.serve(async (req) => {
       console.error('reminder failed', u.id, e)
     }
   }
-  return new Response(JSON.stringify({ checked: users.length, sent }), { headers: { 'Content-Type': 'application/json' } })
+  const nudged = await nudgeNewUsers(site)
+  return new Response(JSON.stringify({ checked: users.length, sent, nudged }), { headers: { 'Content-Type': 'application/json' } })
 })
+
+// One-time nudge for people who signed up 20-48 hours ago, confirmed their email, and still haven't added a brand.
+// Needs profiles.nudged_at (SQL v16); without it this quietly does nothing.
+async function nudgeNewUsers(site: string) {
+  const from = new Date(Date.now() - 48 * 3600e3).toISOString()
+  const to = new Date(Date.now() - 20 * 3600e3).toISOString()
+  const { data, error } = await admin.from('profiles').select('id, email, display_name').is('nudged_at', null).gte('created_at', from).lte('created_at', to).limit(200)
+  if (error || !data) return 0
+  let n = 0
+  for (const p of data) {
+    try {
+      if (!p.email) continue
+      const { count } = await admin.from('deals').select('id', { count: 'exact', head: true }).eq('user_id', p.id)
+      if ((count ?? 0) > 0) continue
+      const { data: au } = await admin.auth.admin.getUserById(p.id)
+      if (!au?.user?.email_confirmed_at) continue
+      // Claim first so two runs can never both send it.
+      const { data: claimed } = await admin.from('profiles').update({ nudged_at: new Date().toISOString() }).eq('id', p.id).is('nudged_at', null).select('id')
+      if (!claimed?.length) continue
+      const msg = nudgeEmail(String(p.display_name ?? '').trim().split(/\s+/)[0]?.slice(0, 40) || '', site)
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${Deno.env.get('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: Deno.env.get('REMINDER_FROM'), to: p.email, reply_to: 'support@dailies.digital', subject: msg.subject, html: msg.html, text: msg.text }),
+      })
+      if (r.ok) n++
+      else console.error('nudge failed', p.id, await r.text())
+    } catch (e) {
+      console.error('nudge failed', p.id, e)
+    }
+  }
+  return n
+}
+
+function nudgeEmail(first: string, site: string) {
+  const hi = first ? `Hi ${first},` : 'Hi there,'
+  const lines = [
+    hi,
+    '',
+    "You signed up for Dailies yesterday but haven't added a brand yet. It takes about 20 seconds: type the brand name, tap how often you post, and Dailies builds your posting list every morning.",
+    '',
+    `Add your first brand: ${site}/app`,
+    '',
+    "No brand deals yet? That's fine. Dailies is free for 2 brands, so it'll be ready the day you land one.",
+    '',
+    'Questions? Just reply to this email.',
+    '',
+    'The Dailies team',
+  ]
+  return {
+    subject: 'Your Dailies posting list is one step away',
+    text: lines.join('\n') + '\n\nThis is a one-time email.',
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222">
+<p>${esc(hi)}</p>
+<p>You signed up for Dailies yesterday but haven't added a brand yet. It takes about 20 seconds: type the brand name, tap how often you post, and Dailies builds your posting list every morning.</p>
+<p><a href="${site}/app">Add your first brand</a></p>
+<p>No brand deals yet? That's fine. Dailies is free for 2 brands, so it'll be ready the day you land one.</p>
+<p>Questions? Just reply to this email.</p>
+<p>The Dailies team</p>
+<p style="color:#777;font-size:12px">This is a one-time email.</p>
+</div>`,
+  }
+}
