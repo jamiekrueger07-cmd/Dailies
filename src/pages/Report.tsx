@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
+import { Link } from 'react-router-dom'
 import { backend } from '../lib/backend'
-import { addDays, hasViewPay, monthLabel, monthReport, PLATFORMS, postViewPay, shortDate, today, viewsReadyOn, type Check, type Deal, type MonthLine } from '../lib/model'
+import { addDays, hasPay, hasViewPay, hm, monthLabel, monthReport, PLATFORMS, postViewPay, shortDate, today, viewsReadyOn, workedMinutes, type Check, type Deal, type MonthLine } from '../lib/model'
 import { useApp } from '../state'
 import { ProBadge } from '../components/Upgrade'
 import { useTitle } from '../lib/title'
@@ -232,7 +233,7 @@ function ShareBox({ deal, month, onClose }: { deal: Deal; month: string; onClose
 
 export function ReportPage() {
   useTitle('Proof of posting')
-  const { isPro, trackedDeals, checks, openUpgrade, flash } = useApp()
+  const { isPro, trackedDeals, checks, sessions, openUpgrade, flash } = useApp()
   const [month, setMonth] = useState(today().slice(0, 7))
   const [sharing, setSharing] = useState<string | null>(null)
   const [viewsOpen, setViewsOpen] = useState<string | null>(null)
@@ -244,10 +245,15 @@ export function ReportPage() {
       postsDone: a.postsDone + l.postsDone,
       postsOwed: a.postsOwed + l.postsOwed,
       earned: a.earned + (l.earned ?? 0),
+      soFar: a.soFar + l.soFar,
       views: a.views + l.views,
     }),
-    { videosDone: 0, videosOwed: 0, postsDone: 0, postsOwed: 0, earned: 0, views: 0 },
+    { videosDone: 0, videosOwed: 0, postsDone: 0, postsOwed: 0, earned: 0, soFar: 0, views: 0 },
   )
+  const monthMin = workedMinutes(sessions.filter((s) => s.date.startsWith(month + '-')))
+  const perHour = monthMin >= 30 && tot.soFar > 0 ? Math.round(tot.soFar / (monthMin / 60)) : null
+  const thisMonth = month === today().slice(0, 7)
+  const anyPay = trackedDeals.some(hasPay)
   const shift = (n: number) => {
     setSharing(null)
     setViewsOpen(null)
@@ -303,12 +309,6 @@ export function ReportPage() {
             <div className="stat-n">{tot.postsOwed ? Math.round((tot.postsDone / tot.postsOwed) * 100) : 0}%</div>
             <div className="stat-l">of quota</div>
           </div>
-          {tot.earned > 0 && (
-            <div className="stat">
-              <div className="stat-n">{usd(Math.round(tot.earned))}</div>
-              <div className="stat-l">{month < today().slice(0, 7) ? 'pay for the month' : 'expected this month'}</div>
-            </div>
-          )}
           {tot.views > 0 && (
             <div className="stat">
               <div className="stat-n">{tot.views >= 1e6 ? `${(tot.views / 1e6).toFixed(1)}M` : tot.views >= 1e4 ? `${Math.round(tot.views / 1e3)}K` : compact(tot.views)}</div>
@@ -316,6 +316,39 @@ export function ReportPage() {
             </div>
           )}
         </div>
+        <section className="card pay-card">
+          <div className="deal-head">
+            <b>Pay &amp; hours</b>
+            <span className="muted small">{monthLabel(`${month}-01`)}</span>
+          </div>
+          <div className="pay-grid">
+            <div>
+              <div className="pay-n">{anyPay ? usd(Math.round(tot.earned)) : '—'}</div>
+              <div className="muted small">{thisMonth ? 'expected this month' : 'pay for the month'}</div>
+            </div>
+            <div>
+              <div className="pay-n">{anyPay ? usd(Math.round(thisMonth ? tot.soFar : tot.earned)) : '—'}</div>
+              <div className="muted small">earned so far</div>
+            </div>
+            <div>
+              <div className="pay-n">{hm(monthMin)}</div>
+              <div className="muted small">worked</div>
+            </div>
+            <div>
+              <div className="pay-n">{perHour != null ? usd(perHour) : '—'}</div>
+              <div className="muted small">per hour</div>
+            </div>
+          </div>
+          {!anyPay ? (
+            <p className="muted small pay-note">
+              Add what each brand pays and this fills in. <Link to="/app/deals">Add pay in Deals</Link>
+            </p>
+          ) : perHour == null ? (
+            <p className="muted small pay-note">Clock in on Today while you work. Once you've logged 30 minutes, your hourly rate shows here.</p>
+          ) : (
+            <p className="muted small pay-note">Earned so far counts finished videos, view pay you've logged and base pay for the days gone by. Dailies can't see what brands actually paid.</p>
+          )}
+        </section>
         {lines.map((l) => (
           <section key={l.deal.id} className="card deal-card report-line" style={{ '--brand': l.deal.color } as CSSProperties}>
             <div className="deal-head">

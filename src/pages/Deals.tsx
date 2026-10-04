@@ -1,7 +1,7 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { DealForm } from '../components/DealForm'
 import { ProBadge } from '../components/Upgrade'
-import { dealProblem, FREE_DEAL_LIMIT, newDeal, paySummary, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
+import { dealProblem, FREE_DEAL_LIMIT, hasPay, newDeal, paySummary, PLATFORMS, videosPerWeek, type Deal } from '../lib/model'
 import { useApp } from '../state'
 import { useTitle } from '../lib/title'
 
@@ -10,9 +10,24 @@ export function DealsPage() {
   const { deals, saveDeals, removeDeal, canAddDeal, lockedIds, isPro, openUpgrade, flash } = useApp()
   const [editing, setEditing] = useState<Deal | null>(null)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
+  const [toPay, setToPay] = useState(false)
+  const formRef = useRef<HTMLDivElement>(null)
+  const editingId = editing?.id
+  // The form opens at the top of the page, so bring it into view (and jump to the pay box for "Add pay").
+  useEffect(() => {
+    if (!editingId || !formRef.current) return
+    const box = toPay ? formRef.current.querySelector<HTMLElement>('.pay-box') : null
+    ;(box ?? formRef.current).scrollIntoView({ behavior: 'smooth', block: 'start' })
+    box?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
+  }, [editingId, toPay])
+  const edit = (d: Deal, pay = false) => {
+    setToPay(pay)
+    setEditing(d)
+  }
 
   const add = () => {
     if (!canAddDeal) return openUpgrade('Add more brand deals')
+    setToPay(false)
     setEditing({ ...newDeal(deals.length), sortOrder: deals.reduce((m, d) => Math.max(m, d.sortOrder + 1), 0) })
   }
   const save = async () => {
@@ -48,7 +63,7 @@ export function DealsPage() {
       )}
 
       {editing && (
-        <div className="card edit-card">
+        <div className="card edit-card" ref={formRef}>
           <DealForm deal={editing} onChange={setEditing} />
           <div className="onboard-actions">
             <button className="btn" onClick={() => setEditing(null)}>
@@ -96,7 +111,12 @@ export function DealsPage() {
                 Paid
               </label>
               <div className="grow" />
-              <button className="btn small" onClick={() => setEditing(d)}>
+              {!hasPay(d) && !locked && (
+                <button className="btn small primary" onClick={() => edit(d, true)}>
+                  + Add pay
+                </button>
+              )}
+              <button className="btn small" onClick={() => edit(d)}>
                 Edit
               </button>
               <button className="btn small" onClick={() => patch(d.id, { status: d.status === 'active' ? 'paused' : 'active' })}>

@@ -1,4 +1,7 @@
 import { InstallBanner } from '../components/InstallApp'
+import { QuickBrand } from '../components/QuickBrand'
+import { ClockCard, TodoCard, useWorkday } from '../components/Workday'
+import { skipKey } from '../lib/skip'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type TouchEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -326,6 +329,13 @@ export function TodayPage() {
   const isToday = date === day
   const rows = useMemo(() => rowsFor(deals, checks, date), [deals, checks, date, day])
   // "Start fresh": missed posts before this date are ignored (for anyone who wasn't tracking yet). Per browser.
+  const skipped = useMemo(() => {
+    try {
+      return localStorage.getItem(skipKey(userId ?? '')) === '1'
+    } catch {
+      return false
+    }
+  }, [userId])
   const freshKey = `dailies:missedFrom:${userId ?? ''}`
   const [missedFrom, setMissedFrom] = useState<string>(() => {
     try {
@@ -352,6 +362,8 @@ export function TodayPage() {
   const filmToday = deals.filter((d) => d.filmDay != null && d.status === 'active' && new Date(date + 'T12:00').getDay() === d.filmDay)
   const weekVideos = videos.filter((v) => v.weekStart === weekStart(date))
   const shot = weekVideos.filter((v) => v.status !== 'idea').length
+  const work = useWorkday(day)
+  const showWork = isToday && deals.length > 0
 
   // swipe left/right to change day
   const touch = useRef<{ x: number; y: number } | null>(null)
@@ -394,21 +406,10 @@ export function TodayPage() {
       {deals.length > 0 && isToday && <InstallBanner />}
       {isToday && <EndingAlerts deals={deals} />}
 
-      {deals.length === 0 && (
-        <div className="card start-card">
-          <h2>Add your first brand</h2>
-          <p className="muted">Once a brand's in, Today builds itself. Here's how it works:</p>
-          <ol>
-            <li>Add the brand, how many videos you owe and where they get posted.</li>
-            <li>Every morning, Today lists exactly what's due.</li>
-            <li>Tap each platform once the post is live, and share proof with the brand in one link.</li>
-          </ol>
-          <Link className="btn primary block" to="/app/deals">
-            Add a brand
-          </Link>
-          <p className="muted small">No deals yet? Look around. Film and Report fill in once you add one.</p>
-        </div>
-      )}
+      {deals.length === 0 && <QuickBrand skipped={skipped} />}
+
+      {showWork && <ClockCard w={work} />}
+      {showWork && <TodoCard w={work} />}
 
       {deals.length > 0 && (
         <div className="progress-card card">
@@ -469,7 +470,7 @@ export function TodayPage() {
         )
       })}
 
-      {filmToday.length > 0 && (
+      {!isToday && filmToday.length > 0 && (
         <section className="card film-card">
           <div className="deal-head">
             <b>Batch film day</b>
