@@ -747,3 +747,25 @@ create index if not exists events_user_date on public.events (user_id, date);
 alter table public.events enable row level security;
 drop policy if exists "own events" on public.events;
 create policy "own events" on public.events for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- =====================================================================
+-- v16 (Oct 4): Workday clock, minutes per task, one-time "add a brand" nudge
+-- =====================================================================
+create table if not exists public.work_sessions (
+  id uuid primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null,
+  started_at timestamptz not null,
+  ended_at timestamptz,
+  end_reason text check (end_reason in ('break', 'out')),
+  created_at timestamptz not null default now(),
+  check (ended_at is null or ended_at >= started_at)
+);
+create index if not exists work_sessions_user_date on public.work_sessions (user_id, date);
+alter table public.work_sessions enable row level security;
+drop policy if exists "own work sessions" on public.work_sessions;
+create policy "own work sessions" on public.work_sessions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+alter table public.profiles add column if not exists work_minutes jsonb;
+grant update (work_minutes) on public.profiles to authenticated;
+alter table public.profiles add column if not exists nudged_at timestamptz;
