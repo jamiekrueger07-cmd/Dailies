@@ -153,9 +153,13 @@ function VideoRow({ row }: { row: Row }) {
 const TIPS_KEY = 'dailies:tipsSeen'
 /** A one-time "how Today works" card for new accounts. */
 function FirstDayTips() {
+  // Shows for the first 3 days, then gets out of the way on its own.
   const [show, setShow] = useState(() => {
     try {
-      return !localStorage.getItem(TIPS_KEY)
+      if (localStorage.getItem(TIPS_KEY)) return false
+      const first = Number(localStorage.getItem(TIPS_KEY + 'First')) || Date.now()
+      localStorage.setItem(TIPS_KEY + 'First', String(first))
+      return Date.now() - first < 3 * 864e5
     } catch {
       return false
     }
@@ -409,7 +413,6 @@ export function TodayPage() {
       {deals.length === 0 && <QuickBrand skipped={skipped} />}
 
       {showWork && <ClockCard w={work} />}
-      {showWork && <TodoCard w={work} />}
 
       {deals.length > 0 && (
         <div className="progress-card card">
@@ -469,6 +472,8 @@ export function TodayPage() {
           </section>
         )
       })}
+
+      {showWork && <TodoCard w={work} />}
 
       {!isToday && filmToday.length > 0 && (
         <section className="card film-card">

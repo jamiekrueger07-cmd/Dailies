@@ -263,6 +263,23 @@ export function AccountPage() {
       </section>
 
       <section className="card edit-card">
+        <h2 className="section-title">Weekly recap</h2>
+        <label className="check toggle-row">
+          <input
+            id="weekly-email"
+            type="checkbox"
+            checked={profile.weeklyEmail}
+            onChange={(e) => saveSettings({ ...profile, weeklyEmail: e.target.checked })}
+          />
+          Email me a recap on Sunday evening
+        </label>
+        <p className="muted tiny">
+          Posts done, hours worked, roughly what you made per hour, and what's coming up next week. Sent around 5:00 PM your time.
+          {backend.mode === 'preview' && ' Preview: emails only send on the live site.'}
+        </p>
+      </section>
+
+      <section className="card edit-card">
         <h2 className="section-title">Name on reports</h2>
         <label>
           How brands see you on proof of posting
