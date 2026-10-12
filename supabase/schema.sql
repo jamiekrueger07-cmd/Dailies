@@ -769,3 +769,8 @@ create policy "own work sessions" on public.work_sessions for all using (auth.ui
 alter table public.profiles add column if not exists work_minutes jsonb;
 grant update (work_minutes) on public.profiles to authenticated;
 alter table public.profiles add column if not exists nudged_at timestamptz;
+
+-- v17 (Oct 12, 2026): Sunday recap email setting
+alter table public.profiles add column if not exists weekly_email boolean not null default true;
+alter table public.profiles add column if not exists weekly_sent_on date;
+grant update (weekly_email) on public.profiles to authenticated;
