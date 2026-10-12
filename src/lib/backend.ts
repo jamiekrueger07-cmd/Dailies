@@ -369,7 +369,10 @@ function cloud(sb: SupabaseClient): Backend {
         const allowance = aiAllowance({ plan: (['pro', 'plus'].includes(data?.plan) ? data?.plan : 'free') as Plan, subscriptionStatus: data?.subscription_status ?? null })
         aiUsed = Math.max(0, allowance - Math.max(0, left.data - (data?.ai_bonus ?? 0)))
       }
+      // Read on its own so an older database without the column still loads the profile.
+      const wk = await sb.from('profiles').select('weekly_email').eq('id', userId).maybeSingle()
       return {
+        weeklyEmail: wk.error ? true : (wk.data as any)?.weekly_email !== false,
         plan: (['pro', 'plus'].includes(data?.plan) ? data?.plan : 'free') as Plan,
         aiUsed,
         aiBonus: data?.ai_bonus ?? 0,
@@ -391,6 +394,8 @@ function cloud(sb: SupabaseClient): Backend {
         .update({ reminder_email: st.reminders, reminder_hour: st.reminderHour, timezone: st.timezone, display_name: st.displayName })
         .eq('id', userId)
       if (error) throw friendly(error)
+      const wk = await sb.from('profiles').update({ weekly_email: st.weeklyEmail }).eq('id', userId)
+      if (wk.error && !st.weeklyEmail) throw new Error('The weekly email setting needs a quick database update first.')
     },
     async setChecks(userId, cs, on) {
       if (!cs.length) return

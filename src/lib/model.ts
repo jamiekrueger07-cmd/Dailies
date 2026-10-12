@@ -101,6 +101,7 @@ export interface Settings {
   reminderHour: number // 0-23, in the user's timezone
   timezone: string
   displayName: string // shown on shared reports
+  weeklyEmail: boolean // Sunday evening recap of the week
 }
 
 export interface Profile extends Settings {
@@ -181,7 +182,7 @@ export const localTimezone = () => {
   }
 }
 
-export const DEFAULT_SETTINGS: Settings = { reminders: false, reminderHour: 20, timezone: localTimezone(), displayName: '' }
+export const DEFAULT_SETTINGS: Settings = { reminders: false, reminderHour: 20, timezone: localTimezone(), displayName: '', weeklyEmail: true }
 
 /** 20 -> "8:00 PM" */
 export const hourLabel = (h: number) => `${h % 12 === 0 ? 12 : h % 12}:00 ${h < 12 ? 'AM' : 'PM'}`
