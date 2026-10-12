@@ -160,11 +160,13 @@ Deno.serve(async (req) => {
     }
   }
   const nudged = await nudgeNewUsers(site)
-  return new Response(JSON.stringify({ checked: users.length, sent, nudged }), { headers: { 'Content-Type': 'application/json' } })
+  const weekly = await weeklyRecaps(site)
+  return new Response(JSON.stringify({ checked: users.length, sent, nudged, weekly }), { headers: { 'Content-Type': 'application/json' } })
 })
 
-// One-time nudge for people who signed up 20-48 hours ago, confirmed their email, and still haven't added a brand.
-// Needs profiles.nudged_at (SQL v16); without it this quietly does nothing.
+// One-time email for people who signed up 20-48 hours ago and confirmed their email:
+// no brand yet -> "add your first brand"; brands but no posts ticked -> "tick your first post".
+// Active users get nothing. Needs profiles.nudged_at (SQL v16); without it this quietly does nothing.
 async function nudgeNewUsers(site: string) {
   const from = new Date(Date.now() - 48 * 3600e3).toISOString()
   const to = new Date(Date.now() - 20 * 3600e3).toISOString()
@@ -175,13 +177,19 @@ async function nudgeNewUsers(site: string) {
     try {
       if (!p.email) continue
       const { count } = await admin.from('deals').select('id', { count: 'exact', head: true }).eq('user_id', p.id)
-      if ((count ?? 0) > 0) continue
+      const brands = count ?? 0
+      // Added brands but never ticked a post: send the "tick your first post" tip instead.
+      if (brands > 0) {
+        const { count: ticked } = await admin.from('post_checks').select('deal_id', { count: 'exact', head: true }).eq('user_id', p.id)
+        if ((ticked ?? 0) > 0) continue
+      }
       const { data: au } = await admin.auth.admin.getUserById(p.id)
       if (!au?.user?.email_confirmed_at) continue
       // Claim first so two runs can never both send it.
       const { data: claimed } = await admin.from('profiles').update({ nudged_at: new Date().toISOString() }).eq('id', p.id).is('nudged_at', null).select('id')
       if (!claimed?.length) continue
-      const msg = nudgeEmail(String(p.display_name ?? '').trim().split(/\s+/)[0]?.slice(0, 40) || '', site)
+      const first = String(p.display_name ?? '').trim().split(/\s+/)[0]?.slice(0, 40) || ''
+      const msg = brands > 0 ? firstPostEmail(first, site) : nudgeEmail(first, site)
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${Deno.env.get('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
@@ -224,4 +232,198 @@ function nudgeEmail(first: string, site: string) {
 <p style="color:#777;font-size:12px">This is a one-time email.</p>
 </div>`,
   }
+}
+
+function firstPostEmail(first: string, site: string) {
+  const hi = first ? `Hi ${first},` : 'Hi there,'
+  const steps = [
+    'Open Today. Each row is one video you owe today, with a button for every platform.',
+    'Once a post is live, tap that platform (TT, IG...). Posted the same video everywhere? Tap ALL.',
+    'Tap the "Vid" label to paste the post link. It shows up on the proof of posting you can send the brand.',
+  ]
+  return {
+    subject: 'How to tick off your first post in Dailies',
+    text: [hi, '', 'Your brands are in, nice. Here is the one habit that makes Dailies work:', '', ...steps.map((x, i) => `${i + 1}. ${x}`), '', `Open today's list: ${site}/app`, '', 'Questions? Just reply to this email.', '', 'The Dailies team', '', 'This is a one-time email.'].join('\n'),
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222">
+<p>${esc(hi)}</p>
+<p>Your brands are in, nice. Here is the one habit that makes Dailies work:</p>
+<ol style="padding-left:20px;margin:0 0 12px">${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+<p><a href="${site}/app">Open today's list</a></p>
+<p>Questions? Just reply to this email.</p>
+<p>The Dailies team</p>
+<p style="color:#777;font-size:12px">This is a one-time email.</p>
+</div>`,
+  }
+}
+
+// ---- Sunday recap: around 5 PM in each user's time zone, once per week, for people who left it on. ----
+// Needs profiles.weekly_email and profiles.weekly_sent_on (SQL v17); without them this quietly does nothing.
+const RECAP_HOUR = 17
+const weekdayIn = (tz: string) => {
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(new Date())
+  } catch {
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short' }).format(new Date())
+  }
+}
+const fmtDay = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+
+type Recap = {
+  postsDone: number
+  postsOwed: number
+  minutes: number
+  pay: number | null
+  perHour: number | null
+  brands: { name: string; done: number; owed: number }[]
+  next: { name: string; videos: number }[]
+}
+
+async function weeklyRecaps(site: string) {
+  const users: any[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin
+      .from('profiles')
+      .select('id, email, plan, timezone, display_name, weekly_sent_on')
+      .eq('weekly_email', true)
+      .order('id')
+      .range(from, from + 999)
+    if (error) return 0
+    users.push(...(data ?? []))
+    if (!data || data.length < 1000) break
+  }
+  let n = 0
+  for (const u of users) {
+    try {
+      const tz = u.timezone || 'America/Los_Angeles'
+      const now = localNow(tz)
+      if (weekdayIn(tz) !== 'Sun' || now.hour < RECAP_HOUR || u.weekly_sent_on === now.date || !u.email) continue
+      const r = await buildRecap(u, now.date)
+      if (!r || (r.postsOwed === 0 && r.next.length === 0)) continue
+      const { data: au } = await admin.auth.admin.getUserById(u.id)
+      if (!au?.user?.email_confirmed_at) continue
+      const { data: claimed } = await admin
+        .from('profiles')
+        .update({ weekly_sent_on: now.date })
+        .eq('id', u.id)
+        .or(`weekly_sent_on.is.null,weekly_sent_on.neq.${now.date}`)
+        .select('id')
+      if (!claimed?.length) continue
+      const first = String(u.display_name ?? '').trim().split(/\s+/)[0]?.slice(0, 40) || ''
+      const msg = recapEmail(first, r, weekStart(now.date), now.date, site)
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${Deno.env.get('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: Deno.env.get('REMINDER_FROM'), to: u.email, reply_to: 'support@dailies.digital', subject: msg.subject, html: msg.html, text: msg.text }),
+      })
+      if (res.ok) n++
+      else console.error('recap failed', u.id, await res.text())
+    } catch (e) {
+      console.error('recap failed', u.id, e)
+    }
+  }
+  return n
+}
+
+async function buildRecap(u: any, sunday: string): Promise<Recap | null> {
+  const start = weekStart(sunday)
+  const { data: deals } = await admin
+    .from('deals')
+    .select('id,name,quota_mode,videos_per_day,videos_per_week,platforms,start_date,end_date,status,sort_order,created_at,rate_per_video,base_pay,base_per')
+    .eq('user_id', u.id)
+    .order('created_at')
+    .order('id')
+  if (!deals?.length) return null
+  const tracked = (u.plan === 'pro' || u.plan === 'plus' ? deals : deals.slice(0, 2)).sort(
+    (a: any, b: any) => a.sort_order - b.sort_order || (a.id < b.id ? -1 : 1),
+  )
+  const [{ data: checks }, sessions] = await Promise.all([
+    admin.from('post_checks').select('deal_id,date,video_no,platform').eq('user_id', u.id).gte('date', start).lte('date', sunday),
+    admin.from('work_sessions').select('started_at,ended_at').eq('user_id', u.id).gte('date', start).lte('date', sunday),
+  ])
+  const done = new Set((checks ?? []).map((c: any) => `${c.deal_id}|${c.date}|${c.video_no}|${c.platform}`))
+  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i))
+  const nextDays = Array.from({ length: 7 }, (_, i) => addDays(start, 7 + i))
+  let postsDone = 0
+  let postsOwed = 0
+  let pay = 0
+  let hasPay = false
+  const brands: Recap['brands'] = []
+  const next: Recap['next'] = []
+  for (const d of tracked as any[]) {
+    const platforms = [...new Set((d.platforms ?? []) as string[])].slice(0, 10)
+    let bDone = 0
+    let bOwed = 0
+    let videosDone = 0
+    for (const day of days) {
+      const vids = Math.min(20, Math.max(0, videosOn(d, day)))
+      for (let v = 1; v <= vids; v++) {
+        let all = true
+        for (const p of platforms) {
+          bOwed++
+          if (done.has(`${d.id}|${day}|${v}|${p}`)) bDone++
+          else all = false
+        }
+        if (all && platforms.length) videosDone++
+      }
+    }
+    postsDone += bDone
+    postsOwed += bOwed
+    if (bOwed) brands.push({ name: String(d.name ?? '').slice(0, 60), done: bDone, owed: bOwed })
+    const rate = Number(d.rate_per_video) || 0
+    const base = Number(d.base_pay) || 0
+    if (rate > 0 || base > 0) hasPay = true
+    pay += videosDone * rate
+    if (base > 0 && days.some((x) => videosOn(d, x) > 0)) pay += d.base_per === 'week' ? base : (base * 7) / 30
+    const upcoming = nextDays.reduce((m, x) => m + Math.min(20, Math.max(0, videosOn(d, x))), 0)
+    if (upcoming) next.push({ name: String(d.name ?? '').slice(0, 60), videos: upcoming })
+  }
+  const minutes = sessions.error
+    ? 0
+    : Math.round(
+        (sessions.data ?? []).reduce((ms: number, s: any) => (s.ended_at ? ms + Math.max(0, Date.parse(s.ended_at) - Date.parse(s.started_at)) : ms), 0) / 60000,
+      )
+  const p = hasPay ? Math.round(pay) : null
+  return { postsDone, postsOwed, minutes, pay: p, perHour: p && minutes >= 30 ? Math.round(p / (minutes / 60)) : null, brands, next }
+}
+
+const hm = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} m` : ''}` : `${min} m`)
+
+function recapEmail(first: string, r: Recap, start: string, end: string, site: string) {
+  const hi = first ? `Hi ${first},` : 'Hi there,'
+  const pct = r.postsOwed ? Math.round((r.postsDone / r.postsOwed) * 100) : 0
+  const stats = [
+    `Posts done: ${r.postsDone} of ${r.postsOwed}${r.postsOwed ? ` (${pct}%)` : ''}`,
+    r.minutes > 0 ? `Time worked: ${hm(r.minutes)}` : 'Time worked: not tracked (clock in on Today to see this)',
+    r.pay != null ? `Earned from posts and base pay: about $${r.pay.toLocaleString()}` : '',
+    r.perHour != null ? `That's roughly $${r.perHour}/hour` : '',
+  ].filter(Boolean)
+  const brandLines = r.brands.map((b) => `${b.name}: ${b.done}/${b.owed} posts`)
+  const nextLines = r.next.map((b) => `${b.name}: ${b.videos} video${b.videos === 1 ? '' : 's'}`)
+  const subject = r.postsOwed ? `Your week: ${r.postsDone} of ${r.postsOwed} posts done` : 'Your week ahead in Dailies'
+  const text = [
+    hi,
+    '',
+    `Here's your week (${fmtDay(start)} to ${fmtDay(end)}):`,
+    ...stats.map((x) => `- ${x}`),
+    ...(brandLines.length ? ['', 'By brand:', ...brandLines.map((x) => `- ${x}`)] : []),
+    ...(nextLines.length ? ['', 'Coming up next week:', ...nextLines.map((x) => `- ${x}`)] : []),
+    '',
+    `Plan next week: ${site}/app/film`,
+    '',
+    'The Dailies team',
+    '',
+    `You're getting this because the weekly recap is on. Turn it off here: ${site}/app/account`,
+  ].join('\n')
+  const li = (xs: string[]) => `<ul style="padding-left:20px;margin:0 0 12px">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222">
+<p>${esc(hi)}</p>
+<p>Here's your week (${fmtDay(start)} to ${fmtDay(end)}):</p>
+${li(stats)}
+${brandLines.length ? `<p style="margin:0">By brand:</p>${li(brandLines)}` : ''}
+${nextLines.length ? `<p style="margin:0">Coming up next week:</p>${li(nextLines)}` : ''}
+<p><a href="${site}/app/film">Plan next week</a></p>
+<p>The Dailies team</p>
+<p style="color:#777;font-size:12px">You're getting this because the weekly recap is on. <a href="${site}/app/account" style="color:#777">Turn it off</a>.</p>
+</div>`
+  return { subject, text, html }
 }
