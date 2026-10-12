@@ -159,6 +159,7 @@ export function ClockCard({ w }: { w: Workday }) {
   const { clockIn, takeBreak, clockOut, endForgotten, workMinutes, saveWorkMinutes } = useApp()
   const [busy, setBusy] = useState(false)
   const [editMins, setEditMins] = useState(false)
+  const [more, setMore] = useState(false)
   const { todays, forgotten, planned, left, now, weekMin, perHour, anyPay } = w
   const open = todays.find((s) => !s.endedAt)
   const last = todays[todays.length - 1]
@@ -174,6 +175,36 @@ export function ClockCard({ w }: { w: Workday }) {
       setBusy(false)
     }
   }
+
+  // Not clocked in yet: one slim row so the posting list stays near the top.
+  if (state === 'off' && !forgotten && !more)
+    return (
+      <section className="card wd-clock wd-slim s-off">
+        <div className="wd-slim-txt">
+          <span className="small">
+            Today's work: about <b>{hm(planned)}</b>
+          </span>
+          <span className="muted tiny">
+            {!anyPay ? (
+              <>
+                <Link to="/app/deals">Add pay</Link> to see your hourly rate
+              </>
+            ) : perHour ? (
+              `$${perHour}/hour this week`
+            ) : (
+              `${hm(weekMin)} worked this week`
+            )}{' '}
+            ·{' '}
+            <button className="btn link tiny wd-more" onClick={() => setMore(true)}>
+              Details
+            </button>
+          </span>
+        </div>
+        <button className="btn primary" disabled={busy} onClick={() => act(clockIn)}>
+          Clock in
+        </button>
+      </section>
+    )
 
   return (
     <section className={`card wd-clock s-${state}`}>
@@ -258,6 +289,11 @@ export function ClockCard({ w }: { w: Workday }) {
           </p>
         )}
       </div>
+      {state === 'off' && more && (
+        <button className="btn link small wd-times" onClick={() => setMore(false)}>
+          Show less
+        </button>
+      )}
       {editMins ? (
         <MinutesEditor value={workMinutes} onSave={saveWorkMinutes} onClose={() => setEditMins(false)} />
       ) : (
